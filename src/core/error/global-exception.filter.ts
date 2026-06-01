@@ -71,21 +71,14 @@ export class GlobalExceptionFilter implements ExceptionFilter {
   }
 
   private mapStatusToCode(status: number): string {
-    switch (status) {
-      case HttpStatus.BAD_REQUEST:
-        return ErrorCode.VALIDATION_ERROR;
-      case HttpStatus.UNAUTHORIZED:
-        return ErrorCode.UNAUTHORIZED;
-      case HttpStatus.FORBIDDEN:
-        return ErrorCode.FORBIDDEN;
-      case HttpStatus.NOT_FOUND:
-        return ErrorCode.NOT_FOUND;
-      case HttpStatus.CONFLICT:
-        return ErrorCode.CONFLICT;
-      case HttpStatus.REQUEST_TIMEOUT:
-        return ErrorCode.QUERY_TIMEOUT;
-      default:
-        return ErrorCode.INTERNAL_ERROR;
-    }
+    const map = new Map<number, ErrorCode>([
+      [HttpStatus.BAD_REQUEST, ErrorCode.VALIDATION_ERROR],
+      [HttpStatus.UNAUTHORIZED, ErrorCode.UNAUTHORIZED],
+      [HttpStatus.FORBIDDEN, ErrorCode.FORBIDDEN],
+      [HttpStatus.NOT_FOUND, ErrorCode.NOT_FOUND],
+      [HttpStatus.CONFLICT, ErrorCode.CONFLICT],
+      [HttpStatus.REQUEST_TIMEOUT, ErrorCode.QUERY_TIMEOUT],
+    ]);
+    return map.get(status) ?? ErrorCode.INTERNAL_ERROR;
   }
 }

@@ -15,12 +15,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { Pool, PoolClient, PoolConfig } from 'pg';
-import {
-  QueryOptions,
-  QueryResult,
-  SqlParam,
-  TIMEOUTS,
-} from './db.types';
+import { QueryOptions, QueryResult, SqlParam, TIMEOUTS } from './db.types';
 import { QueryTimeoutError } from './db.errors';
 
 @Injectable()
@@ -87,8 +82,7 @@ export class PoolManagerService implements OnModuleInit, OnModuleDestroy {
   private buildSslOption(): PoolConfig['ssl'] {
     if (process.env.DB_SSL !== 'true') return false;
     return {
-      rejectUnauthorized:
-        process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false',
+      rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false',
     };
   }
 

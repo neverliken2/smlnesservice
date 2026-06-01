@@ -1,0 +1,40 @@
+# Build output
+dist
+coverage
+
+# Deps
+node_modules
+npm-debug.log*
+
+# Source control
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+.claude
+
+# Tests + dev artifacts
+test
+*.spec.ts
+**/*.spec.ts
+
+# Env (อย่า bake credentials เข้า image — mount ผ่าน env runtime)
+.env
+.env.*
+!.env.example
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Docs
+README.md
+docs
+
+# Lock files ที่ไม่ใช่ npm
+yarn.lock
+pnpm-lock.yaml
+bun.lockb

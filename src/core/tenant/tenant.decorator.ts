@@ -1,4 +1,5 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import type { Request } from 'express';
 import type { TenantContext } from './tenant.types';
 
 /**
@@ -13,7 +14,7 @@ import type { TenantContext } from './tenant.types';
  */
 export const Tenant = createParamDecorator(
   (_data: unknown, ctx: ExecutionContext): TenantContext => {
-    const request = ctx.switchToHttp().getRequest();
+    const request = ctx.switchToHttp().getRequest<Request>();
     return request.user as TenantContext;
   },
 );

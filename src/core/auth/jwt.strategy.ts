@@ -6,10 +6,10 @@ import type { TenantContext } from '../tenant/tenant.types';
 import type { JwtPayload } from './jwt.types';
 
 /**
- * JWT Strategy — verify token + populate request.user เป็น TenantContext
+ * JWT Strategy — verify session token + populate request.user เป็น TenantContext
  *
- * NestJS Passport pattern: คำสั่งที่ return จาก validate() จะถูกใส่ใน request.user
- * → @Tenant() decorator อ่านจาก request.user ได้ตรงๆ
+ * รับเฉพาะ tokenType === 'session' — pre-select token จะถูกปฏิเสธ
+ * (pre-select ใช้ผ่าน PreSelectAuthGuard ที่ /auth/select-database โดยเฉพาะ)
  */
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -28,6 +28,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   validate(payload: JwtPayload): TenantContext {
+    if (payload.tokenType !== 'session') {
+      throw new UnauthorizedException(
+        'ต้องใช้ session token — pre-select token ใช้ผ่าน /auth/select-database เท่านั้น',
+      );
+    }
     if (!payload.provider || !payload.database || !payload.sub) {
       throw new UnauthorizedException('Invalid token payload');
     }

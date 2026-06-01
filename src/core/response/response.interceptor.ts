@@ -19,16 +19,16 @@ import type { ApiSuccessResponse } from './response.types';
  * Error path ไม่ผ่าน interceptor นี้ — GlobalExceptionFilter จัดการแยก
  */
 @Injectable()
-export class ResponseInterceptor<T = unknown>
-  implements NestInterceptor<T, ApiSuccessResponse<T>>
-{
+export class ResponseInterceptor<T = unknown> implements NestInterceptor<
+  T,
+  ApiSuccessResponse<T>
+> {
   intercept(
     context: ExecutionContext,
     next: CallHandler<T>,
   ): Observable<ApiSuccessResponse<T>> {
     const req = context.switchToHttp().getRequest<Request>();
-    const requestId =
-      (req.headers['x-request-id'] as string) ?? randomUUID();
+    const requestId = (req.headers['x-request-id'] as string) ?? randomUUID();
 
     return next.handle().pipe(
       map((data) => ({

@@ -21,10 +21,7 @@ import type { TenantContext } from '../tenant/tenant.types';
 export class AuditInterceptor implements NestInterceptor {
   private readonly logger = new Logger('Audit');
 
-  intercept(
-    context: ExecutionContext,
-    next: CallHandler,
-  ): Observable<unknown> {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const start = Date.now();
     const req = context.switchToHttp().getRequest<Request>();
     const tenant = req.user as TenantContext | undefined;
