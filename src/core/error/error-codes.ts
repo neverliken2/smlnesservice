@@ -1,0 +1,29 @@
+/**
+ * Standard error codes — ส่งกลับใน response.error.code
+ * ฝั่ง client (web) match ตัว enum นี้เพื่อแสดง UI ตามแต่ละ case
+ */
+export enum ErrorCode {
+  // Generic
+  INTERNAL_ERROR = 'INTERNAL_ERROR',
+  VALIDATION_ERROR = 'VALIDATION_ERROR',
+  NOT_FOUND = 'NOT_FOUND',
+  CONFLICT = 'CONFLICT',
+  FORBIDDEN = 'FORBIDDEN',
+
+  // Auth
+  UNAUTHORIZED = 'UNAUTHORIZED',
+  INVALID_API_KEY = 'INVALID_API_KEY',
+  INVALID_CREDENTIALS = 'INVALID_CREDENTIALS',
+  TOKEN_EXPIRED = 'TOKEN_EXPIRED',
+
+  // Tenant
+  PROVIDER_NOT_FOUND = 'PROVIDER_NOT_FOUND',
+  DATABASE_NOT_FOUND = 'DATABASE_NOT_FOUND',
+
+  // DB
+  DB_CONNECTION_ERROR = 'DB_CONNECTION_ERROR',
+  QUERY_TIMEOUT = 'QUERY_TIMEOUT',
+
+  // Domain (เพิ่มเมื่อ implement endpoint ใหม่)
+  DUPLICATE_DOC_NO = 'DUPLICATE_DOC_NO',
+}
