@@ -26,20 +26,26 @@ async function bootstrap() {
       .setTitle('smlnesservice API')
       .setDescription(
         'API Gateway สำหรับ SML ERP Web/Mobile clients\n\n' +
-          'ทุก endpoint ใต้ /api/v1 ต้องมี header:\n' +
-          '- `X-API-Key`: raw key (เก็บที่ฝั่ง client)\n' +
-          '- `X-Provider`: provider code เช่น "demo"\n\n' +
-          'หลัง /auth/select-database จะได้ JWT — ใช้ `Authorization: Bearer <token>` เพิ่ม',
+          '**Auth flow (2-step + session):**\n' +
+          '1. POST /auth/login {provider, username, password} → pre-select JWT (2m)\n' +
+          '2. POST /auth/select-database {dataCode} + Bearer <preSelect> → guidCode\n' +
+          '3. ใช้ guidCode กับ endpoint อื่น ๆ ผ่าน\n' +
+          '   `Authorization: SmlGuid <provider>:<guidCode>`\n\n' +
+          'Session อายุ 8 ชม. นับจาก last_access_time (sliding) — เก็บใน sml_guid',
       )
       .setVersion('1.0')
-      .addApiKey({ type: 'apiKey', name: 'X-API-Key', in: 'header' }, 'apiKey')
-      .addApiKey(
-        { type: 'apiKey', name: 'X-Provider', in: 'header' },
-        'provider',
-      )
       .addBearerAuth(
         { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
-        'jwt',
+        'preSelect',
+      )
+      .addApiKey(
+        {
+          type: 'apiKey',
+          name: 'Authorization',
+          in: 'header',
+          description: 'SmlGuid <provider>:<guidCode>',
+        },
+        'smlGuid',
       )
       .build();
     const document = SwaggerModule.createDocument(app, swaggerConfig);

@@ -7,19 +7,23 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type { JwtPayload, JwtTokenType } from '../../core/auth/jwt.types';
+import { SmlGuidRepository } from '../../core/auth/sml-guid.repository';
+import { generateGuidCode } from '../../core/auth/sml-guid.util';
 import { ErrorCode } from '../../core/error/error-codes';
 import { AuthRepository } from './auth.repository';
 import { parseDurationSeconds } from './duration.util';
 import type {
   DatabaseInfo,
   LoginResponse,
+  LogoutResponse,
   SessionTokenResponse,
   UserInfo,
 } from './dto/login-response.dto';
 
 const DEFAULT_DATA_GROUP = 'SML';
-const DEFAULT_SESSION_TTL = '30m';
 const DEFAULT_PRE_SELECT_TTL = '2m';
+const DEFAULT_SESSION_TTL_HOURS = 8;
+const COMPUTER_NAME = 'smlnesservice';
 
 @Injectable()
 export class AuthService {
@@ -27,10 +31,15 @@ export class AuthService {
 
   constructor(
     private readonly repo: AuthRepository,
+    private readonly guidRepo: SmlGuidRepository,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
   ) {}
 
+  /**
+   * Step 1 — verify password + return list of allowed databases + pre-select JWT
+   * pre-select JWT ใช้กับ /auth/select-database step ต่อไปเท่านั้น
+   */
   async login(
     provider: string,
     username: string,
@@ -93,10 +102,13 @@ export class AuthService {
     };
   }
 
+  /**
+   * Step 2 — INSERT row ใน sml_guid + return guid_code (= session key)
+   */
   async selectDatabase(
     provider: string,
     userCode: string,
-    userLevel: number,
+    _userLevel: number,
     dataCode: string,
   ): Promise<SessionTokenResponse> {
     let dbRow;
@@ -114,85 +126,59 @@ export class AuthService {
       });
     }
 
-    return this.issueSession(
-      provider,
-      userCode,
-      userLevel,
-      dbRow.data_database_name,
-      {
+    const guidCode = generateGuidCode();
+    try {
+      await this.guidRepo.insert(provider, {
+        guidCode,
+        userCode,
+        databaseCode: dbRow.data_database_name,
+        computerName: COMPUTER_NAME,
+      });
+    } catch (err) {
+      this.mapDbError(err, provider);
+      throw err;
+    }
+
+    return {
+      guidCode,
+      sessionTtlHours: this.sessionTtlHours(),
+      user: { userCode, userName: '', userLevel: _userLevel },
+      database: {
         dataCode: dbRow.data_code,
         databaseName: dbRow.data_database_name,
         dataName: dbRow.data_name,
       },
-    );
+    };
   }
 
   /**
-   * Refresh session token — รับ session token เดิม (ยังไม่ expire) → ออกใบใหม่
-   * เนื้อหา payload คงเดิม (provider, userCode, userLevel, database)
-   * ต้อง verify ว่า DB ยังมีอยู่จริงเพื่อกัน race กับการลบสิทธิ์
+   * Logout — DELETE row ใน sml_guid
+   * Return success even if row หายไปแล้ว (idempotent)
    */
-  async refresh(
-    provider: string,
-    userCode: string,
-    userLevel: number,
-    databaseName: string,
-  ): Promise<SessionTokenResponse> {
-    // หา data_code reverse จาก database_name — query ทุก DB ของ user แล้ว filter
-    const all = await this.repo.listDatabasesForUser(
-      provider,
-      userCode,
-      DEFAULT_DATA_GROUP,
-    );
-    const match = all.find(
-      (r) => r.data_database_name.toLowerCase() === databaseName.toLowerCase(),
-    );
-    if (!match) {
-      throw new UnauthorizedException({
-        code: ErrorCode.DATABASE_NOT_FOUND,
-        message: 'สิทธิ์เข้าถึง DB ถูกเพิกถอน — login ใหม่',
-      });
+  async logout(provider: string, guidCode: string): Promise<LogoutResponse> {
+    let rowCount = 0;
+    try {
+      rowCount = await this.guidRepo.delete(provider, guidCode);
+    } catch (err) {
+      const dbErr = err as { code?: string };
+      if (dbErr.code !== '3D000' && dbErr.code !== '42P01') throw err;
     }
-
-    return this.issueSession(provider, userCode, userLevel, databaseName, {
-      dataCode: match.data_code,
-      databaseName: match.data_database_name,
-      dataName: match.data_name,
-    });
+    return { deleted: rowCount > 0 };
   }
 
-  private async issueSession(
-    provider: string,
-    userCode: string,
-    userLevel: number,
-    databaseName: string,
-    dbInfo: DatabaseInfo,
-  ): Promise<SessionTokenResponse> {
-    const ttl =
-      this.config.get<string>('JWT_EXPIRES_IN') ?? DEFAULT_SESSION_TTL;
-    const accessToken = await this.signToken(
-      {
-        sub: userCode,
-        provider,
-        tokenType: 'session',
-        database: databaseName,
-        userLevel,
-      },
-      ttl,
-    );
-    return {
-      accessToken,
-      expiresIn: parseDurationSeconds(ttl),
-      user: { userCode, userName: '', userLevel },
-      database: dbInfo,
-    };
+  private sessionTtlHours(): number {
+    const raw = this.config.get<string>('SESSION_TTL_HOURS');
+    const parsed = raw ? parseInt(raw, 10) : NaN;
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return DEFAULT_SESSION_TTL_HOURS;
+    }
+    return parsed;
   }
 
   private signToken(
     payload: Omit<JwtPayload, 'iat' | 'exp'> & { tokenType: JwtTokenType },
     expiresIn: string,
   ): Promise<string> {
-    // @nestjs/jwt expects ms-style template literal — cast เพราะค่ามาจาก env (string)
     return this.jwt.signAsync(payload, {
       expiresIn: expiresIn as `${number}${'s' | 'm' | 'h' | 'd'}`,
     });
@@ -209,7 +195,7 @@ export class AuthService {
     if (dbErr.code === '42P01') {
       throw new BadRequestException({
         code: ErrorCode.PROVIDER_NOT_FOUND,
-        message: `Auth DB ของ provider "${provider}" ไม่มีตาราง sml_user_list`,
+        message: `Auth DB ของ provider "${provider}" ไม่มีตาราง sml_user_list หรือ sml_guid`,
       });
     }
   }

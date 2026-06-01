@@ -1,6 +1,6 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { SkipApiKey } from '../../core/auth';
+import { Public } from '../../core/auth';
 import { PoolManagerService } from '../../core/db/pool-manager.service';
 
 interface HealthResponse {
@@ -17,13 +17,13 @@ interface HealthResponse {
 }
 
 /**
- * GET /health (no global prefix, no API key, no JWT)
+ * GET /health (no global prefix, no auth)
  * - Liveness check: process ตอบ → status=ok
  * - Optional: ?provider=demo → ลอง connect smlerpmaindemo + return latency
  */
 @ApiTags('health')
 @Controller('health')
-@SkipApiKey()
+@Public()
 export class HealthController {
   private readonly bootTime = Date.now();
 

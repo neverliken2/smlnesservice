@@ -3,7 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 
 import { DbModule } from './core/db';
-import { ApiKeyGuard, AuthModule } from './core/auth';
+import { AuthModule, SmlGuidGuard } from './core/auth';
 import { AuditInterceptor } from './core/audit';
 import { GlobalExceptionFilter } from './core/error';
 import { ResponseInterceptor } from './core/response';
@@ -22,9 +22,9 @@ import { HealthModule } from './modules/health/health.module';
     HealthModule,
   ],
   providers: [
-    // ApiKeyGuard ติด global — ทุก endpoint ต้องมี X-API-Key + X-Provider
-    // ยกเว้น handler ที่ติด @SkipApiKey() (เช่น /health)
-    { provide: APP_GUARD, useClass: ApiKeyGuard },
+    // SmlGuidGuard ติด global — ทุก endpoint ต้องมี Authorization: SmlGuid <provider>:<guidCode>
+    // ยกเว้น handler ที่ติด @Public() (/health, /auth/login, /auth/select-database)
+    { provide: APP_GUARD, useClass: SmlGuidGuard },
     // Order ของ APP_INTERCEPTOR สำคัญ:
     // request → ResponseInterceptor → AuditInterceptor → handler → response
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },

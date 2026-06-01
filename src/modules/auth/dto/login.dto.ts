@@ -1,6 +1,11 @@
 import { z } from 'zod';
 
 export const LoginSchema = z.object({
+  provider: z
+    .string()
+    .min(1, 'provider ต้องไม่ว่าง')
+    .max(20)
+    .regex(/^[a-zA-Z0-9]+$/, 'provider ต้องเป็น alphanumeric'),
   username: z
     .string()
     .min(1, 'username ต้องไม่ว่าง')

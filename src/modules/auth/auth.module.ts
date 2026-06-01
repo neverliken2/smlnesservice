@@ -5,11 +5,11 @@ import { AuthService } from './auth.service';
 import { PreSelectAuthGuard } from './pre-select.guard';
 
 /**
- * Feature Auth Module — /auth/login, /auth/select-database, /auth/refresh
+ * Feature Auth Module — /auth/login, /auth/select-database, /auth/logout
  *
  * Depend ผ่าน global:
  * - DbModule         → PoolManagerService
- * - core AuthModule  → JwtService (sign/verify), JwtAuthGuard
+ * - core AuthModule  → JwtService, SmlGuidRepository, SmlGuidGuard
  */
 @Module({
   controllers: [AuthController],

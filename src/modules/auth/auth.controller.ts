@@ -8,15 +8,9 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiBody,
-  ApiOperation,
-  ApiSecurity,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBody, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
-import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
+import { Public } from '../../core/auth/public.decorator';
 import { Tenant } from '../../core/tenant/tenant.decorator';
 import type { TenantContext } from '../../core/tenant/tenant.types';
 import { ErrorCode } from '../../core/error/error-codes';
@@ -24,38 +18,38 @@ import { AuthService } from './auth.service';
 import { LoginSchema, SelectDatabaseSchema } from './dto/login.dto';
 import type {
   LoginResponse,
+  LogoutResponse,
   SessionTokenResponse,
 } from './dto/login-response.dto';
 import { PreSelectAuthGuard } from './pre-select.guard';
 
 @ApiTags('auth')
-@ApiSecurity('apiKey')
-@ApiSecurity('provider')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   /**
-   * POST /api/v1/auth/login
-   * Headers: X-API-Key, X-Provider
-   * Body: { username, password, dataGroup? }
+   * POST /api/v1/auth/login   (Public)
+   * Body: {provider, username, password, dataGroup?}
    *
-   * → { preSelectToken, preSelectExpiresIn, user, databases }
+   * → {preSelectToken, preSelectExpiresIn, user, databases}
    */
   @Post('login')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Login ด้วย username/password',
     description:
-      'Step 1 ของ 2-step login. หาก user ตรง → ออก pre-select token (อายุสั้น) + list databases',
+      'Step 1 ของ 2-step login. ออก pre-select JWT (อายุ 2m) + list databases',
   })
   @ApiBody({
     schema: {
       type: 'object',
-      required: ['username', 'password'],
+      required: ['provider', 'username', 'password'],
       properties: {
-        username: { type: 'string', example: 'admin' },
-        password: { type: 'string', example: 'admin' },
+        provider: { type: 'string', example: 'demo' },
+        username: { type: 'string', example: 'DEMO1' },
+        password: { type: 'string', example: '111' },
         dataGroup: {
           type: 'string',
           example: 'SML',
@@ -64,21 +58,10 @@ export class AuthController {
       },
     },
   })
-  async login(
-    @Req() req: Request,
-    @Body() body: unknown,
-  ): Promise<LoginResponse> {
+  async login(@Body() body: unknown): Promise<LoginResponse> {
     const parsed = this.parse(LoginSchema, body);
-    const provider = req.tenantProvider;
-    if (!provider) {
-      // ApiKeyGuard ควรการันตี populate แล้ว — guard fail safe
-      throw new BadRequestException({
-        code: ErrorCode.PROVIDER_NOT_FOUND,
-        message: 'X-Provider header จำเป็น',
-      });
-    }
     return this.auth.login(
-      provider,
+      parsed.provider.toLowerCase(),
       parsed.username,
       parsed.password,
       parsed.dataGroup,
@@ -87,25 +70,26 @@ export class AuthController {
 
   /**
    * POST /api/v1/auth/select-database
-   * Headers: X-API-Key, X-Provider, Authorization: Bearer <preSelectToken>
-   * Body: { dataCode }
+   * Headers: Authorization: Bearer <preSelectToken>
+   * Body: {dataCode}
    *
-   * → { accessToken, expiresIn, user, database }
+   * → {guidCode, sessionTtlHours, user, database}
+   * guidCode ใช้ต่อใน Authorization: SmlGuid <provider>:<guidCode>
    */
   @Post('select-database')
-  @HttpCode(HttpStatus.OK)
+  @Public()
   @UseGuards(PreSelectAuthGuard)
-  @ApiBearerAuth('jwt')
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'เลือก data DB ที่จะใช้งาน',
+    summary: 'เลือก data DB → ออก session (guid_code)',
     description:
-      'Step 2 ของ login. ส่ง pre-select token (Authorization Bearer) + dataCode → ออก session token',
+      'Step 2. INSERT sml_guid + return guidCode สำหรับใช้กับ endpoint ทั่วไป',
   })
   @ApiBody({
     schema: {
       type: 'object',
       required: ['dataCode'],
-      properties: { dataCode: { type: 'string', example: 'DEMO' } },
+      properties: { dataCode: { type: 'string', example: 'WHOLESALE' } },
     },
   })
   async selectDatabase(
@@ -113,7 +97,13 @@ export class AuthController {
     @Body() body: unknown,
   ): Promise<SessionTokenResponse> {
     const parsed = this.parse(SelectDatabaseSchema, body);
-    const ctx = req.preSelect!;
+    const ctx = req.preSelect;
+    if (!ctx) {
+      throw new BadRequestException({
+        code: ErrorCode.UNAUTHORIZED,
+        message: 'pre-select context missing',
+      });
+    }
     return this.auth.selectDatabase(
       ctx.provider,
       ctx.userCode,
@@ -123,28 +113,27 @@ export class AuthController {
   }
 
   /**
-   * POST /api/v1/auth/refresh
-   * Headers: X-API-Key, X-Provider, Authorization: Bearer <accessToken>
+   * POST /api/v1/auth/logout
+   * Headers: Authorization: SmlGuid <provider>:<guidCode>
    *
-   * → { accessToken, expiresIn, user, database } — payload เหมือนเดิม, exp ใหม่
+   * → DELETE row จาก sml_guid
    */
-  @Post('refresh')
+  @Post('logout')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('jwt')
-  @ApiOperation({
-    summary: 'ต่ออายุ session token',
-    description: 'รับ session token ที่ยังไม่หมดอายุ → ออกใบใหม่ (sliding TTL)',
-  })
-  async refresh(
+  @ApiSecurity('smlGuid')
+  @ApiOperation({ summary: 'Logout — ลบ sml_guid row' })
+  async logout(
+    @Req() req: Request,
     @Tenant() tenant: TenantContext,
-  ): Promise<SessionTokenResponse> {
-    return this.auth.refresh(
-      tenant.provider,
-      tenant.userCode,
-      tenant.userLevel,
-      tenant.database,
-    );
+  ): Promise<LogoutResponse> {
+    const guidCode = req.guidCode;
+    if (!guidCode) {
+      throw new BadRequestException({
+        code: ErrorCode.UNAUTHORIZED,
+        message: 'session context missing',
+      });
+    }
+    return this.auth.logout(tenant.provider, guidCode);
   }
 
   private parse<T>(
