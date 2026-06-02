@@ -26,26 +26,41 @@ async function bootstrap() {
       .setTitle('smlnesservice API')
       .setDescription(
         'API Gateway สำหรับ SML ERP Web/Mobile clients\n\n' +
-          '**Auth flow (2-step + session):**\n' +
-          '1. POST /auth/login {provider, username, password} → pre-select JWT (2m)\n' +
-          '2. POST /auth/select-database {dataCode} + Bearer <preSelect> → guidCode\n' +
-          '3. ใช้ guidCode กับ endpoint อื่น ๆ ผ่าน\n' +
-          '   `Authorization: SmlGuid <provider>:<guidCode>`\n\n' +
-          'Session อายุ 8 ชม. นับจาก last_access_time (sliding) — เก็บใน sml_guid',
+          '**Auth flow:**\n' +
+          '1. POST /auth/login — Authorization: Bearer <CLIENT_TOKEN>\n' +
+          '   (CLIENT_TOKEN ของ client เช่น NextStep CN Coupon; hash อยู่ใน env)\n' +
+          '   body: {provider, username, password} → preSelect JWT (2m)\n' +
+          '2. POST /auth/select-database — Authorization: Bearer <preSelectJWT>\n' +
+          '   body: {dataCode} → session JWT (8h)\n' +
+          '3. ทุก endpoint อื่น — Authorization: Bearer <sessionJWT>\n\n' +
+          'session JWT payload มี clientCode + provider + database + userCode',
       )
       .setVersion('1.0')
       .addBearerAuth(
-        { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
-        'preSelect',
-      )
-      .addApiKey(
         {
-          type: 'apiKey',
-          name: 'Authorization',
-          in: 'header',
-          description: 'SmlGuid <provider>:<guidCode>',
+          type: 'http',
+          scheme: 'bearer',
+          description: 'CLIENT_TOKEN raw จาก env (ใช้กับ /auth/login เท่านั้น)',
         },
-        'smlGuid',
+        'clientToken',
+      )
+      .addBearerAuth(
+        {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+          description: 'pre-select JWT (ใช้กับ /auth/select-database)',
+        },
+        'preSelectJwt',
+      )
+      .addBearerAuth(
+        {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+          description: 'session JWT (ใช้กับ endpoint ทั่วไป)',
+        },
+        'sessionJwt',
       )
       .build();
     const document = SwaggerModule.createDocument(app, swaggerConfig);

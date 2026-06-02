@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import type { Request } from 'express';
+import { ClientRegistryService } from '../../core/auth/client-registry.service';
 import type { JwtPayload } from '../../core/auth/jwt.types';
 import { ErrorCode } from '../../core/error/error-codes';
 
@@ -13,7 +14,7 @@ import { ErrorCode } from '../../core/error/error-codes';
  * PreSelectAuthGuard — verify JWT แบบ pre-select (ออกจาก /auth/login)
  * ใช้ที่ /auth/select-database; ติดบน handler โดยตรง
  *
- * Populate request.preSelect = {provider, userCode, userLevel}
+ * Populate request.preSelect = {provider, userCode, userLevel, clientCode}
  * — แยกจาก request.user เพราะ pre-select ไม่ใช่ TenantContext เต็มรูปแบบ
  */
 
@@ -21,6 +22,7 @@ export interface PreSelectContext {
   provider: string;
   userCode: string;
   userLevel: number;
+  clientCode: string;
 }
 
 declare module 'express' {
@@ -31,7 +33,10 @@ declare module 'express' {
 
 @Injectable()
 export class PreSelectAuthGuard implements CanActivate {
-  constructor(private readonly jwt: JwtService) {}
+  constructor(
+    private readonly jwt: JwtService,
+    private readonly registry: ClientRegistryService,
+  ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const req = ctx.switchToHttp().getRequest<Request>();
@@ -60,10 +65,16 @@ export class PreSelectAuthGuard implements CanActivate {
         message: 'ต้องใช้ pre-select token จาก /auth/login',
       });
     }
-    if (!payload.provider || !payload.sub) {
+    if (!payload.provider || !payload.sub || !payload.clientCode) {
       throw new UnauthorizedException({
         code: ErrorCode.UNAUTHORIZED,
         message: 'Token payload ไม่ครบ',
+      });
+    }
+    if (!this.registry.isClientAllowed(payload.clientCode)) {
+      throw new UnauthorizedException({
+        code: ErrorCode.UNAUTHORIZED,
+        message: 'Client ไม่ allowed แล้ว — กรุณา login ใหม่',
       });
     }
 
@@ -71,6 +82,7 @@ export class PreSelectAuthGuard implements CanActivate {
       provider: payload.provider,
       userCode: payload.sub,
       userLevel: payload.userLevel ?? 0,
+      clientCode: payload.clientCode,
     };
     return true;
   }

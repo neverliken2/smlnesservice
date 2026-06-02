@@ -3,17 +3,22 @@ import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import type { TenantContext } from '../tenant/tenant.types';
+import { ClientRegistryService } from './client-registry.service';
 import type { JwtPayload } from './jwt.types';
 
 /**
- * JWT Strategy — verify session token + populate request.user เป็น TenantContext
+ * JWT Strategy — verify session token + populate request.user
  *
- * รับเฉพาะ tokenType === 'session' — pre-select token จะถูกปฏิเสธ
- * (pre-select ใช้ผ่าน PreSelectAuthGuard ที่ /auth/select-database โดยเฉพาะ)
+ * - รับเฉพาะ tokenType === 'session' (pre-select ใช้ผ่าน PreSelectAuthGuard)
+ * - เช็คว่า clientCode ใน payload ยังอยู่ใน ClientRegistry
+ *   → กัน JWT เก่าหลัง admin rotate client token
  */
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(config: ConfigService) {
+  constructor(
+    config: ConfigService,
+    private readonly registry: ClientRegistryService,
+  ) {
     const secret = config.get<string>('JWT_SECRET');
     if (!secret) {
       throw new Error(
@@ -30,11 +35,19 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   validate(payload: JwtPayload): TenantContext {
     if (payload.tokenType !== 'session') {
       throw new UnauthorizedException(
-        'ต้องใช้ session token — pre-select token ใช้ผ่าน /auth/select-database เท่านั้น',
+        'ต้องใช้ session token — pre-select ใช้ผ่าน /auth/select-database เท่านั้น',
       );
     }
     if (!payload.provider || !payload.database || !payload.sub) {
       throw new UnauthorizedException('Invalid token payload');
+    }
+    if (
+      !payload.clientCode ||
+      !this.registry.isClientAllowed(payload.clientCode)
+    ) {
+      throw new UnauthorizedException(
+        'Client ไม่ allowed แล้ว — กรุณา login ใหม่',
+      );
     }
     return {
       provider: payload.provider,

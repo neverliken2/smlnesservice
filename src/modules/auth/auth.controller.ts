@@ -8,17 +8,15 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBody, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
+import { ClientAuthGuard } from '../../core/auth/client-auth.guard';
 import { Public } from '../../core/auth/public.decorator';
-import { Tenant } from '../../core/tenant/tenant.decorator';
-import type { TenantContext } from '../../core/tenant/tenant.types';
 import { ErrorCode } from '../../core/error/error-codes';
 import { AuthService } from './auth.service';
 import { LoginSchema, SelectDatabaseSchema } from './dto/login.dto';
 import type {
   LoginResponse,
-  LogoutResponse,
   SessionTokenResponse,
 } from './dto/login-response.dto';
 import { PreSelectAuthGuard } from './pre-select.guard';
@@ -29,18 +27,22 @@ export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   /**
-   * POST /api/v1/auth/login   (Public)
-   * Body: {provider, username, password, dataGroup?}
+   * POST /api/v1/auth/login
+   * Auth:  Authorization: Bearer <CLIENT_TOKEN>   (verify ผ่าน ClientAuthGuard)
+   * Body:  {provider, username, password, dataGroup?}
    *
    * → {preSelectToken, preSelectExpiresIn, user, databases}
    */
   @Post('login')
   @Public()
+  @UseGuards(ClientAuthGuard)
   @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('clientToken')
   @ApiOperation({
-    summary: 'Login ด้วย username/password',
+    summary: 'Step 1 — verify user/password (ต้องผ่าน client token)',
     description:
-      'Step 1 ของ 2-step login. ออก pre-select JWT (อายุ 2m) + list databases',
+      'Authorization Bearer = client token (เช่น token ของ NextStep CN Coupon, ' +
+      'hash อยู่ใน env ALLOWED_CLIENTS_JSON). ออก pre-select JWT (2m) + databases list',
   })
   @ApiBody({
     schema: {
@@ -58,9 +60,20 @@ export class AuthController {
       },
     },
   })
-  async login(@Body() body: unknown): Promise<LoginResponse> {
+  async login(
+    @Req() req: Request,
+    @Body() body: unknown,
+  ): Promise<LoginResponse> {
     const parsed = this.parse(LoginSchema, body);
+    const clientCode = req.clientCode;
+    if (!clientCode) {
+      throw new BadRequestException({
+        code: ErrorCode.INVALID_API_KEY,
+        message: 'client context missing — guard ผิดพลาด',
+      });
+    }
     return this.auth.login(
+      clientCode,
       parsed.provider.toLowerCase(),
       parsed.username,
       parsed.password,
@@ -70,20 +83,19 @@ export class AuthController {
 
   /**
    * POST /api/v1/auth/select-database
-   * Headers: Authorization: Bearer <preSelectToken>
-   * Body: {dataCode}
+   * Auth:  Authorization: Bearer <preSelectJWT>   (verify ผ่าน PreSelectAuthGuard)
+   * Body:  {dataCode}
    *
-   * → {guidCode, sessionTtlHours, user, database}
-   * guidCode ใช้ต่อใน Authorization: SmlGuid <provider>:<guidCode>
+   * → {accessToken, expiresIn, user, database}
+   * accessToken = session JWT (8h) บรรจุ database + clientCode
    */
   @Post('select-database')
   @Public()
   @UseGuards(PreSelectAuthGuard)
   @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('preSelectJwt')
   @ApiOperation({
-    summary: 'เลือก data DB → ออก session (guid_code)',
-    description:
-      'Step 2. INSERT sml_guid + return guidCode สำหรับใช้กับ endpoint ทั่วไป',
+    summary: 'Step 2 — เลือก data DB → ออก session JWT 8h',
   })
   @ApiBody({
     schema: {
@@ -105,35 +117,12 @@ export class AuthController {
       });
     }
     return this.auth.selectDatabase(
+      ctx.clientCode,
       ctx.provider,
       ctx.userCode,
       ctx.userLevel,
       parsed.dataCode,
     );
-  }
-
-  /**
-   * POST /api/v1/auth/logout
-   * Headers: Authorization: SmlGuid <provider>:<guidCode>
-   *
-   * → DELETE row จาก sml_guid
-   */
-  @Post('logout')
-  @HttpCode(HttpStatus.OK)
-  @ApiSecurity('smlGuid')
-  @ApiOperation({ summary: 'Logout — ลบ sml_guid row' })
-  async logout(
-    @Req() req: Request,
-    @Tenant() tenant: TenantContext,
-  ): Promise<LogoutResponse> {
-    const guidCode = req.guidCode;
-    if (!guidCode) {
-      throw new BadRequestException({
-        code: ErrorCode.UNAUTHORIZED,
-        message: 'session context missing',
-      });
-    }
-    return this.auth.logout(tenant.provider, guidCode);
   }
 
   private parse<T>(

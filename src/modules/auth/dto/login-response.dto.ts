@@ -13,7 +13,7 @@ export interface DatabaseInfo {
 /**
  * Response ของ /auth/login
  *
- * - preSelectToken — JWT ชั่วคราว (default 2m) สำหรับเรียก /auth/select-database
+ * - preSelectToken — JWT ชั่วคราว (default 2m) ใช้ผ่าน /auth/select-database
  * - databases — list ที่ user มีสิทธิ์ (filter ตาม dataGroup ถ้า provide)
  */
 export interface LoginResponse {
@@ -26,20 +26,12 @@ export interface LoginResponse {
 /**
  * Response ของ /auth/select-database
  *
- * - guidCode  — session key ของจริง (row ใน sml_guid ของ auth DB)
- *   ใช้ผ่าน `Authorization: SmlGuid <provider>:<guidCode>` กับทุก endpoint
- * - sessionTtlHours — TTL นับจาก last_access_time (sliding) — default 8h
+ * - accessToken — session JWT (default 8h) — ใช้ผ่าน Authorization Bearer ทุก endpoint
+ *   payload มี clientCode + provider + database + userCode ในตัว
  */
 export interface SessionTokenResponse {
-  guidCode: string;
-  sessionTtlHours: number;
+  accessToken: string;
+  expiresIn: number;
   user: UserInfo;
   database: DatabaseInfo;
-}
-
-/**
- * Response ของ /auth/logout
- */
-export interface LogoutResponse {
-  deleted: boolean;
 }
