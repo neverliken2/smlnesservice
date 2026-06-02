@@ -1,0 +1,180 @@
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  Param,
+  Query,
+} from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
+import { Tenant } from '../../core/tenant/tenant.decorator';
+import type { TenantContext } from '../../core/tenant/tenant.types';
+import { ErrorCode } from '../../core/error/error-codes';
+import { CreditNoteService } from './credit-note.service';
+import { DocNoService } from './doc-no.service';
+import {
+  CustomerSearchQuerySchema,
+  type CustomerOption,
+} from './dto/customer.dto';
+import {
+  ListSalesInvoicesQuerySchema,
+  type SalesInvoiceOption,
+} from './dto/sales-invoice.dto';
+import type { InvoiceDetailResponse } from './dto/invoice-detail.dto';
+import { NextDocNoQuerySchema, type NextDocNoResponse } from './dto/doc-no.dto';
+import {
+  ListWebCouponsQuerySchema,
+  type CouponListItem,
+} from './dto/coupon.dto';
+import {
+  PriceDiffQuerySchema,
+  type PriceDiffReportResponse,
+} from './dto/price-diff.dto';
+
+@ApiTags('credit-note')
+@ApiBearerAuth('sessionJwt')
+@Controller()
+export class CreditNoteController {
+  constructor(
+    private readonly creditNote: CreditNoteService,
+    private readonly docNo: DocNoService,
+  ) {}
+
+  // ──────────────────────────── doc-no ────────────────────────────
+
+  @Get('doc-no/next')
+  @ApiOperation({
+    summary: 'Generate next CN doc_no',
+    description:
+      'Parse erp_doc_format.format → expand @YYYY/MM/DD + # running ใหม่',
+  })
+  @ApiQuery({ name: 'formatCode', required: false, example: 'CN' })
+  @ApiQuery({ name: 'docDate', required: true, example: '2026-06-02' })
+  async getNextDocNo(
+    @Tenant() tenant: TenantContext,
+    @Query() query: unknown,
+  ): Promise<NextDocNoResponse> {
+    const parsed = this.parse(NextDocNoQuerySchema, query);
+    return this.docNo.getNextDocNo(
+      tenant.database,
+      parsed.formatCode,
+      parsed.docDate,
+    );
+  }
+
+  // ──────────────────────────── customers ────────────────────────────
+
+  @Get('customers')
+  @ApiOperation({
+    summary: 'Search customers (autocomplete)',
+    description: 'ILIKE บน code + name_1; status=0 เท่านั้น (active); LIMIT 50',
+  })
+  @ApiQuery({ name: 'query', required: false, example: 'ABC' })
+  async searchCustomers(
+    @Tenant() tenant: TenantContext,
+    @Query() query: unknown,
+  ): Promise<CustomerOption[]> {
+    const parsed = this.parse(CustomerSearchQuerySchema, query);
+    return this.creditNote.searchCustomers(tenant.database, parsed.query ?? '');
+  }
+
+  // ──────────────────────────── sales invoices ────────────────────────────
+
+  @Get('sales-invoices')
+  @ApiOperation({
+    summary: 'List sales invoices (trans_flag=44)',
+    description:
+      'ถ้าส่ง custCode → filter; ไม่ส่ง → return 100 ใบล่าสุดทั้งหมด',
+  })
+  @ApiQuery({ name: 'custCode', required: false })
+  async listSalesInvoices(
+    @Tenant() tenant: TenantContext,
+    @Query() query: unknown,
+  ): Promise<SalesInvoiceOption[]> {
+    const parsed = this.parse(ListSalesInvoicesQuerySchema, query);
+    return this.creditNote.listSalesInvoices(tenant.database, parsed.custCode);
+  }
+
+  @Get('sales-invoices/:docNo')
+  @ApiOperation({
+    summary: 'Get invoice detail (header + lines พร้อม available_qty)',
+    description:
+      'available_qty = qty ที่ยังส่งคืนได้ (หัก CN เก่าแล้ว ตาม SMLERP22 _qtyRemainQuery)',
+  })
+  @ApiParam({ name: 'docNo', example: 'SO260601001' })
+  async getInvoiceDetail(
+    @Tenant() tenant: TenantContext,
+    @Param('docNo') docNo: string,
+  ): Promise<InvoiceDetailResponse> {
+    return this.creditNote.getInvoiceDetail(tenant.database, docNo);
+  }
+
+  // ──────────────────────────── web coupons ────────────────────────────
+
+  @Get('web-coupons')
+  @ApiOperation({
+    summary: 'List coupons ที่ออกจาก web (creator_code = nextstep_cn_coupon)',
+    description:
+      'Filter: query (ILIKE doc_no/cust_code/cust_name/ref), fromDate, toDate, limit ≤ 500',
+  })
+  @ApiQuery({ name: 'query', required: false })
+  @ApiQuery({ name: 'fromDate', required: false, example: '2026-01-01' })
+  @ApiQuery({ name: 'toDate', required: false, example: '2026-12-31' })
+  @ApiQuery({ name: 'limit', required: false, example: 200 })
+  async listWebCoupons(
+    @Tenant() tenant: TenantContext,
+    @Query() query: unknown,
+  ): Promise<CouponListItem[]> {
+    const parsed = this.parse(ListWebCouponsQuerySchema, query);
+    return this.creditNote.listWebCoupons(tenant.database, parsed);
+  }
+
+  // ──────────────────────────── reports ────────────────────────────
+
+  @Get('reports/cn-price-diff')
+  @ApiOperation({
+    summary: 'CN price diff vs source invoice',
+    description: 'รายการ CN ที่ price ต่างจาก invoice ต้นทาง (LIMIT 500)',
+  })
+  @ApiQuery({ name: 'fromDate', required: true, example: '2026-01-01' })
+  @ApiQuery({ name: 'toDate', required: true, example: '2026-12-31' })
+  async getCnPriceDiffReport(
+    @Tenant() tenant: TenantContext,
+    @Query() query: unknown,
+  ): Promise<PriceDiffReportResponse> {
+    const parsed = this.parse(PriceDiffQuerySchema, query);
+    return this.creditNote.getCnPriceDiffReport(
+      tenant.database,
+      parsed.fromDate,
+      parsed.toDate,
+    );
+  }
+
+  // ──────────────────────────── helper ────────────────────────────
+
+  private parse<T>(
+    schema: {
+      safeParse: (v: unknown) => {
+        success: boolean;
+        data?: T;
+        error?: unknown;
+      };
+    },
+    value: unknown,
+  ): T {
+    const result = schema.safeParse(value);
+    if (!result.success) {
+      throw new BadRequestException({
+        code: ErrorCode.VALIDATION_ERROR,
+        message: 'Validation failed',
+        details: result.error,
+      });
+    }
+    return result.data as T;
+  }
+}

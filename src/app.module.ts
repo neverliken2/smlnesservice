@@ -10,6 +10,7 @@ import { AuditInterceptor } from './core/audit';
 import { GlobalExceptionFilter } from './core/error';
 import { ResponseInterceptor } from './core/response';
 import { AuthFeatureModule } from './modules/auth';
+import { CreditNoteModule } from './modules/credit-note';
 import { HealthModule } from './modules/health/health.module';
 import { ExecutionContext, Injectable } from '@nestjs/common';
 
@@ -42,6 +43,7 @@ class GlobalJwtAuthGuard extends JwtAuthGuard {
     DbModule,
     AuthModule,
     AuthFeatureModule,
+    CreditNoteModule,
     HealthModule,
   ],
   providers: [
