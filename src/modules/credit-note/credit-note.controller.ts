@@ -1,12 +1,17 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
+  Post,
   Query,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiBody,
   ApiOperation,
   ApiParam,
   ApiQuery,
@@ -35,6 +40,10 @@ import {
   PriceDiffQuerySchema,
   type PriceDiffReportResponse,
 } from './dto/price-diff.dto';
+import {
+  CreditNotePayloadSchema,
+  type SaveCreditNoteResult,
+} from './dto/save-credit-note.dto';
 
 @ApiTags('credit-note')
 @ApiBearerAuth('sessionJwt')
@@ -153,6 +162,64 @@ export class CreditNoteController {
       parsed.fromDate,
       parsed.toDate,
     );
+  }
+
+  // ──────────────────────────── save (POST) ────────────────────────────
+
+  @Post('credit-notes')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Save Credit Note',
+    description:
+      'สร้าง CN ใหม่ (trans_flag=48): pro-rata จาก source invoice + ออก coupon ถ้า ' +
+      'inquiry_type เป็น cash (1/3/5) และ erp_option.cn_coupon_only=1. ' +
+      'INSERT 4 tables ใน 1 transaction (ic_trans, ic_trans_detail, cb_trans, ap_ar_trans_detail) ' +
+      '+ coupon_list ถ้าออกคูปอง',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: [
+        'doc_no',
+        'doc_date',
+        'cust_code',
+        'ref_doc_no',
+        'inquiry_type',
+        'lines',
+      ],
+      properties: {
+        doc_no: { type: 'string', example: 'CN-2606-0001' },
+        doc_date: { type: 'string', example: '2026-06-02' },
+        cust_code: { type: 'string', example: 'AR00001' },
+        ref_doc_no: { type: 'string', example: 'SI260101001' },
+        ref_doc_date: { type: 'string', example: '2026-01-15' },
+        inquiry_type: { type: 'number', example: 1 },
+        remark: { type: 'string' },
+        coupon_expire_date: { type: 'string', example: '2026-07-02' },
+        coupon_single_use: { type: 'boolean', example: true },
+        lines: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['line_number', 'item_code', 'price', 'qty_cn'],
+            properties: {
+              line_number: { type: 'number', example: 0 },
+              item_code: { type: 'string' },
+              qty: { type: 'number' },
+              price: { type: 'number' },
+              qty_cn: { type: 'number', example: 1 },
+            },
+          },
+        },
+      },
+    },
+  })
+  async saveCreditNote(
+    @Tenant() tenant: TenantContext,
+    @Body() body: unknown,
+  ): Promise<SaveCreditNoteResult> {
+    const parsed = this.parse(CreditNotePayloadSchema, body);
+    return this.creditNote.saveCreditNote(tenant.database, parsed);
   }
 
   // ──────────────────────────── helper ────────────────────────────

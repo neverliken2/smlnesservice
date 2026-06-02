@@ -10,3 +10,4 @@ export * from './dto/invoice-detail.dto';
 export * from './dto/doc-no.dto';
 export * from './dto/coupon.dto';
 export * from './dto/price-diff.dto';
+export * from './dto/save-credit-note.dto';
