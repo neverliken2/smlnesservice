@@ -101,12 +101,13 @@ export class CreditNoteController {
       'ถ้าส่ง custCode → filter; ไม่ส่ง → return 100 ใบล่าสุดทั้งหมด',
   })
   @ApiQuery({ name: 'custCode', required: false })
+  @ApiQuery({ name: 'query', required: false, description: 'ค้นหาจาก doc_no / cust_code / ชื่อลูกค้า (ILIKE)' })
   async listSalesInvoices(
     @Tenant() tenant: TenantContext,
     @Query() query: unknown,
   ): Promise<SalesInvoiceOption[]> {
     const parsed = this.parse(ListSalesInvoicesQuerySchema, query);
-    return this.creditNote.listSalesInvoices(tenant.database, parsed.custCode);
+    return this.creditNote.listSalesInvoices(tenant.database, parsed.custCode, parsed.query);
   }
 
   @Get('sales-invoices/:docNo')

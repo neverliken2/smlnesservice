@@ -68,9 +68,11 @@ export class CreditNoteService {
   async listSalesInvoices(
     database: string,
     custCode: string | undefined,
+    query: string | undefined,
   ): Promise<SalesInvoiceOption[]> {
     const code = (custCode || '').trim();
-    const rows = await this.repo.listSalesInvoices(database, code || undefined);
+    const q = (query || '').trim();
+    const rows = await this.repo.listSalesInvoices(database, code || undefined, q || undefined);
     return rows.map((r) => ({
       doc_no: r.doc_no,
       doc_date: toISODate(r.doc_date),

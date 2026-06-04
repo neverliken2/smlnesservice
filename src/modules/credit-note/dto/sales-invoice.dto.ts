@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const ListSalesInvoicesQuerySchema = z.object({
   custCode: z.string().max(50).optional(),
+  query: z.string().max(100).optional(),
 });
 
 export type ListSalesInvoicesQueryDto = z.infer<

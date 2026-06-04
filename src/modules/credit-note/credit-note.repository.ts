@@ -125,6 +125,7 @@ export class CreditNoteRepository {
   async listSalesInvoices(
     database: string,
     custCode: string | undefined,
+    query: string | undefined,
   ): Promise<SalesInvoiceRow[]> {
     const params: (string | number)[] = [SALE_TRANS_FLAG];
     const where: string[] = [
@@ -134,6 +135,12 @@ export class CreditNoteRepository {
     if (custCode) {
       params.push(custCode);
       where.push(`t.cust_code = $${params.length}`);
+    }
+    if (query) {
+      const like = `%${query}%`;
+      params.push(like);
+      const n = params.length;
+      where.push(`(t.doc_no ILIKE $${n} OR t.cust_code ILIKE $${n} OR COALESCE(c.name_1,'') ILIKE $${n})`);
     }
 
     const result = await this.pool.query<SalesInvoiceRow>(
