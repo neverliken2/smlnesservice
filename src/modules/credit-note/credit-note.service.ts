@@ -32,7 +32,7 @@ import type {
 const SALE_TRANS_FLAG = 44;
 const CN_TRANS_FLAG = 48;
 const TRANS_TYPE_AR = 2;
-const CN_FORMAT_CODE = 'CN';
+const CN_FORMAT_CODE = 'WCN';
 
 /**
  * Marker ที่บอกว่าเอกสาร/คูปองถูกสร้างจาก NextStep CN Coupon web
@@ -69,10 +69,20 @@ export class CreditNoteService {
     database: string,
     custCode: string | undefined,
     query: string | undefined,
+    limit: number | undefined,
+    offset: number | undefined,
   ): Promise<SalesInvoiceOption[]> {
     const code = (custCode || '').trim();
     const q = (query || '').trim();
-    const rows = await this.repo.listSalesInvoices(database, code || undefined, q || undefined);
+    const safeLimit = Math.min(Math.max(limit ?? 30, 1), 100);
+    const safeOffset = Math.max(offset ?? 0, 0);
+    const rows = await this.repo.listSalesInvoices(
+      database,
+      code || undefined,
+      q || undefined,
+      safeLimit,
+      safeOffset,
+    );
     return rows.map((r) => ({
       doc_no: r.doc_no,
       doc_date: toISODate(r.doc_date),
@@ -83,7 +93,29 @@ export class CreditNoteService {
       vat_rate: Number(r.vat_rate) || 0,
       discount_word: r.discount_word || '',
       inquiry_type: r.inquiry_type ?? 0,
+      // is_fully_used เป็น false ทุกตัวใน list query — ค่อย fetch แยกที่ /fully-used-status
+      is_fully_used: false,
     }));
+  }
+
+  /**
+   * Batch check is_fully_used ของ doc_no list — ใช้หลัง list ขึ้นมา
+   * Frontend เรียก endpoint นี้ → render สีเทาทีหลัง (lazy load)
+   */
+  async getFullyUsedStatus(
+    database: string,
+    docNos: string[],
+  ): Promise<Record<string, boolean>> {
+    // กัน abuse — limit ที่ 200 docNos/call
+    const safeDocNos = (docNos || []).slice(0, 200).filter((d) => typeof d === 'string' && d.length > 0);
+    if (safeDocNos.length === 0) return {};
+    const rows = await this.repo.getFullyUsedStatus(database, safeDocNos);
+    const map: Record<string, boolean> = {};
+    for (const r of rows) {
+      map[r.doc_no] = r.is_fully_used === true;
+    }
+    // doc_no ที่ไม่มี line (เคสประหลาด) ก็ถือว่า false
+    return map;
   }
 
   // ──────────────────────────── 3. Invoice Detail ────────────────────────────
@@ -188,6 +220,8 @@ export class CreditNoteService {
       balance_amount: Number(r.balance_amount) || 0,
       date_expire: toISODate(r.date_expire),
       single_use: Number(r.single_use) || 0,
+      // ถ้า last_editor_code = APP_CREATOR_CODE = CN เก่าก่อนเก็บ staff_name → ส่ง '' กลับไป
+      staff_name: r.staff_name && r.staff_name !== APP_CREATOR_CODE ? r.staff_name : '',
     }));
   }
 
@@ -597,7 +631,7 @@ export class CreditNoteService {
            $23,
            $24,
            0, 0, 0, 0, 0,
-           $25, $25
+           $25, $26
          )`,
         [
           TRANS_TYPE_AR,
@@ -624,7 +658,8 @@ export class CreditNoteService {
           payload.inquiry_type,
           sourceHeader.discount_word || '',
           (payload.remark || '').slice(0, 200),
-          APP_CREATOR_CODE,
+          APP_CREATOR_CODE,                                   // $25 creator_code — filter marker คงเดิม
+          (payload.staff_name || '').slice(0, 200) || APP_CREATOR_CODE, // $26 last_editor_code — user_name ของผู้ออก CN
         ],
       );
 

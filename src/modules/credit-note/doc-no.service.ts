@@ -6,7 +6,7 @@ import {
 import { ErrorCode } from '../../core/error/error-codes';
 import { CreditNoteRepository } from './credit-note.repository';
 
-const CN_FORMAT_CODE = 'CN';
+const CN_FORMAT_CODE = 'WCN';
 
 /**
  * Generate next CN document number based on erp_doc_format.format pattern.

@@ -34,12 +34,13 @@ export class AuthRepository {
     provider: string,
     userCode: string,
   ): Promise<UserRow | null> {
+    // ไม่กรอง active_status — ตาม pattern ของ smlerp22_new (_myFrameWork._checkUserAndPassword)
+    // และ NextStep CN Coupon ตัวเก่า; superadmin ใน demo มี active_status=0 ก็ต้อง login ได้
     const result = await this.pool.query<UserRow>(
       this.authDbName(provider),
       `SELECT user_code, user_name, user_password, user_level
          FROM sml_user_list
-        WHERE UPPER(user_code) = UPPER($1)
-          AND COALESCE(active_status, 1) = 1`,
+        WHERE UPPER(user_code) = UPPER($1)`,
       [userCode],
       { timeout: 10_000 },
     );

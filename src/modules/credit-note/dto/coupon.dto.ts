@@ -26,4 +26,6 @@ export interface CouponListItem {
   date_expire: string;
   /** 0 = ใช้หลายครั้ง, 1 = ใช้ครั้งเดียว */
   single_use: number;
+  /** ชื่อเจ้าหน้าที่ที่ออก CN/คูปอง (จาก ic_trans.last_editor_code) */
+  staff_name: string;
 }

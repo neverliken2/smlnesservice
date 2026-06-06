@@ -2,6 +2,7 @@ import { Controller, Get, Query } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Public } from '../../core/auth';
 import { PoolManagerService } from '../../core/db/pool-manager.service';
+import { APP_VERSION } from '../../core/version';
 
 interface HealthResponse {
   status: 'ok' | 'degraded' | 'down';
@@ -44,7 +45,7 @@ export class HealthController {
     const base: HealthResponse = {
       status: 'ok',
       uptimeSeconds: Math.floor((Date.now() - this.bootTime) / 1000),
-      version: process.env.npm_package_version ?? '0.0.0',
+      version: APP_VERSION,
       timestamp: new Date().toISOString(),
     };
 

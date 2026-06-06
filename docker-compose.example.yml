@@ -2,13 +2,23 @@
 # docker-compose.example.yml — ตัวอย่างสำหรับลูกค้า 1 ราย
 #
 # วิธีใช้:
-#   1. copy เป็น docker-compose.yml
-#   2. แก้ env (DB_HOST, JWT_SECRET, ฯลฯ) ให้ตรง environment ลูกค้า
+#   1. cp docker-compose.example.yml docker-compose.yml
+#   2. cp .env.example .env  แล้วแก้ค่าทุกตัวให้ตรงลูกค้า
+#      (DB_HOST, DB_USER, DB_PASSWORD, JWT_SECRET, ALLOWED_CLIENTS_JSON)
 #   3. docker compose up -d --build
+#
+# Production checklist (อ่านก่อน deploy):
+#   ☐ JWT_SECRET เป็น random >=32 chars (openssl rand -hex 32)
+#   ☐ ALLOWED_CLIENTS_JSON gen ใหม่ (อย่าใช้ของ dev)
+#   ☐ DB_SSL=true ถ้า PG อยู่คนละ host
+#   ☐ มี reverse proxy (nginx) ตัด TLS หน้า service — ห้าม expose port 8003
+#     ตรง ๆ บน internet (Bearer token จะวิ่งผ่าน HTTP plain)
 #
 # หมายเหตุ:
 #   - service นี้ไม่ host PG เอง — connect ออกไปที่ PG ของลูกค้า
 #   - 1 instance ต่อ 1 ลูกค้า (Model A) — ไม่ใช่ multi-tenant ใน container เดียว
+#   - env ทั้งหมดอ่านจาก .env (env_file) — ไม่ duplicate ใน environment block
+#     เพื่อกัน confusion เวลา .env เปลี่ยนแล้ว compose ดันใช้ค่าเก่า
 # =============================================================
 
 services:
@@ -19,32 +29,34 @@ services:
     container_name: smlnesservice
     restart: unless-stopped
     ports:
-      # บน server ลูกค้าแนะนำ map ผ่าน reverse proxy (nginx) → 443
+      # ⚠️ บน production แนะนำ bind 127.0.0.1 เท่านั้น แล้วให้ nginx forward
+      # ตัวอย่าง:  "127.0.0.1:8003:3000"
       - "8003:3000"
-    environment:
-      NODE_ENV: production
-      PORT: 3000
-
-      # ---- PostgreSQL ----
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT:-5432}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
-      DB_NAME_PREFIX: ${DB_NAME_PREFIX:-smlerpmain}
-      DB_SSL: ${DB_SSL:-false}
-      DB_SSL_REJECT_UNAUTHORIZED: ${DB_SSL_REJECT_UNAUTHORIZED:-true}
-
-      # ---- Auth ----
-      JWT_SECRET: ${JWT_SECRET}
-      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-30m}
-      PRE_SELECT_EXPIRES_IN: ${PRE_SELECT_EXPIRES_IN:-2m}
-      API_KEY_SALT_ROUNDS: ${API_KEY_SALT_ROUNDS:-12}
-    # อ่าน env file นอก git
     env_file:
       - .env
-    # โหลดเฉพาะที่จำเป็น — log ออก stdout
+    environment:
+      # override บางตัวที่ต้องการ enforce ใน production
+      NODE_ENV: production
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+
+  # ---- (Optional) nginx reverse proxy + TLS ----
+  # ถ้าลูกค้ามี nginx อยู่แล้วบน host ก็ข้าม service นี้ และใช้ config จาก
+  # nginx.example.conf เป็น template
+  #
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: smlnesservice-nginx
+  #   restart: unless-stopped
+  #   ports:
+  #     - "443:443"
+  #     - "80:80"
+  #   volumes:
+  #     - ./nginx.example.conf:/etc/nginx/conf.d/default.conf:ro
+  #     - /etc/letsencrypt/live/<domain>/fullchain.pem:/etc/nginx/certs/fullchain.pem:ro
+  #     - /etc/letsencrypt/live/<domain>/privkey.pem:/etc/nginx/certs/privkey.pem:ro
+  #   depends_on:
+  #     - smlnesservice

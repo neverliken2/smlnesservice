@@ -58,6 +58,12 @@ export const CreditNotePayloadSchema = z.object({
     .optional(),
   /** ใช้คูปองได้ครั้งเดียว (default = true) */
   coupon_single_use: z.boolean().optional(),
+  /**
+   * ชื่อเจ้าหน้าที่ที่ออกคูปอง (sml_user_list.user_name ของ user ที่ login)
+   * เก็บใน ic_trans.last_editor_code → reprint จากเมนู coupon list ดึงกลับมาได้ตรง
+   * ถ้าไม่ส่ง → fallback เป็น APP_CREATOR_CODE เหมือนเดิม
+   */
+  staff_name: z.string().max(200).optional(),
   lines: z.array(CreditNoteLineSchema).min(1, 'lines ต้องมีอย่างน้อย 1 รายการ'),
 });
 

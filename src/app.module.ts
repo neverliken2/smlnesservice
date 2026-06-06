@@ -12,6 +12,7 @@ import { ResponseInterceptor } from './core/response';
 import { AuthFeatureModule } from './modules/auth';
 import { CreditNoteModule } from './modules/credit-note';
 import { HealthModule } from './modules/health/health.module';
+import { StatusModule } from './modules/status/status.module';
 import { ExecutionContext, Injectable } from '@nestjs/common';
 
 /**
@@ -45,6 +46,7 @@ class GlobalJwtAuthGuard extends JwtAuthGuard {
     AuthFeatureModule,
     CreditNoteModule,
     HealthModule,
+    StatusModule,
   ],
   providers: [
     // JwtAuthGuard ติด global — verify session JWT ทุก endpoint

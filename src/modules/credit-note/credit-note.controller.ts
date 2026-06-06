@@ -28,7 +28,9 @@ import {
 } from './dto/customer.dto';
 import {
   ListSalesInvoicesQuerySchema,
+  FullyUsedStatusBodySchema,
   type SalesInvoiceOption,
+  type FullyUsedStatusResponse,
 } from './dto/sales-invoice.dto';
 import type { InvoiceDetailResponse } from './dto/invoice-detail.dto';
 import { NextDocNoQuerySchema, type NextDocNoResponse } from './dto/doc-no.dto';
@@ -96,18 +98,50 @@ export class CreditNoteController {
 
   @Get('sales-invoices')
   @ApiOperation({
-    summary: 'List sales invoices (trans_flag=44)',
+    summary: 'List sales invoices (trans_flag=44) — paginated',
     description:
-      'ถ้าส่ง custCode → filter; ไม่ส่ง → return 100 ใบล่าสุดทั้งหมด',
+      'Default limit=30. is_fully_used = false ทุก row — เรียก POST /sales-invoices/fully-used-status เพื่อ batch fetch สถานะ',
   })
   @ApiQuery({ name: 'custCode', required: false })
   @ApiQuery({ name: 'query', required: false, description: 'ค้นหาจาก doc_no / cust_code / ชื่อลูกค้า (ILIKE)' })
+  @ApiQuery({ name: 'limit', required: false, description: 'default 30, max 100' })
+  @ApiQuery({ name: 'offset', required: false, description: 'pagination offset' })
   async listSalesInvoices(
     @Tenant() tenant: TenantContext,
     @Query() query: unknown,
   ): Promise<SalesInvoiceOption[]> {
     const parsed = this.parse(ListSalesInvoicesQuerySchema, query);
-    return this.creditNote.listSalesInvoices(tenant.database, parsed.custCode, parsed.query);
+    return this.creditNote.listSalesInvoices(
+      tenant.database,
+      parsed.custCode,
+      parsed.query,
+      parsed.limit,
+      parsed.offset,
+    );
+  }
+
+  @Post('sales-invoices/fully-used-status')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Batch check is_fully_used สำหรับ doc_no list',
+    description:
+      'รับ docNos list → return { [docNo]: is_fully_used } — ใช้ lazy load หลัง list invoice ขึ้นมาแล้ว',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['docNos'],
+      properties: {
+        docNos: { type: 'array', items: { type: 'string' }, maxItems: 200 },
+      },
+    },
+  })
+  async getFullyUsedStatus(
+    @Tenant() tenant: TenantContext,
+    @Body() body: unknown,
+  ): Promise<FullyUsedStatusResponse> {
+    const parsed = this.parse(FullyUsedStatusBodySchema, body);
+    return this.creditNote.getFullyUsedStatus(tenant.database, parsed.docNos);
   }
 
   @Get('sales-invoices/:docNo')
