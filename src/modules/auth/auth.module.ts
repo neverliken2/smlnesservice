@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AuthController } from './auth.controller';
 import { AuthRepository } from './auth.repository';
 import { AuthService } from './auth.service';
+import { CnPermissionService } from './cn-permission.service';
 import { PreSelectAuthGuard } from './pre-select.guard';
 
 /**
@@ -13,6 +14,11 @@ import { PreSelectAuthGuard } from './pre-select.guard';
  */
 @Module({
   controllers: [AuthController],
-  providers: [AuthService, AuthRepository, PreSelectAuthGuard],
+  providers: [
+    AuthService,
+    AuthRepository,
+    PreSelectAuthGuard,
+    CnPermissionService,
+  ],
 })
 export class AuthFeatureModule {}

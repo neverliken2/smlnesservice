@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   UnauthorizedException,
@@ -9,6 +10,7 @@ import { JwtService } from '@nestjs/jwt';
 import type { JwtPayload, JwtTokenType } from '../../core/auth/jwt.types';
 import { ErrorCode } from '../../core/error/error-codes';
 import { AuthRepository } from './auth.repository';
+import { CnPermissionService } from './cn-permission.service';
 import { parseDurationSeconds } from './duration.util';
 import type {
   DatabaseInfo,
@@ -29,6 +31,7 @@ export class AuthService {
     private readonly repo: AuthRepository,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly cnPermission: CnPermissionService,
   ) {}
 
   /**
@@ -54,6 +57,22 @@ export class AuthService {
       throw new UnauthorizedException({
         code: ErrorCode.INVALID_CREDENTIALS,
         message: 'username หรือ password ไม่ถูกต้อง',
+      });
+    }
+
+    // Permission gate — เช็คสิทธิ์เมนู menu_so_credit_note ของ SMLERP22
+    // ต้อง isRead AND isAdd ถึงผ่าน (mirror logic จาก _isAccessMenuPermision)
+    const perm = await this.cnPermission.checkCreditNoteAccess(
+      provider,
+      user.user_code,
+    );
+    if (!perm.allowed) {
+      this.logger.warn(
+        `Permission denied for ${user.user_code} @ ${provider} — reason=${perm.reason}, isRead=${perm.isRead}, isAdd=${perm.isAdd}`,
+      );
+      throw new ForbiddenException({
+        code: ErrorCode.NO_PERMISSION,
+        message: 'ไม่มีสิทธิ์เข้าใช้งานระบบ',
       });
     }
 
