@@ -11,6 +11,7 @@ import type { JwtPayload, JwtTokenType } from '../../core/auth/jwt.types';
 import { ErrorCode } from '../../core/error/error-codes';
 import { AuthRepository } from './auth.repository';
 import { CnPermissionService } from './cn-permission.service';
+import { StockAdjustPermissionService } from './stock-adjust-permission.service';
 import { parseDurationSeconds } from './duration.util';
 import type {
   DatabaseInfo,
@@ -23,6 +24,9 @@ const DEFAULT_DATA_GROUP = 'SML';
 const DEFAULT_PRE_SELECT_TTL = '2m';
 const DEFAULT_SESSION_TTL = '8h';
 
+const CLIENT_CN_COUPON = 'nextstep-cn-coupon';
+const CLIENT_STOCK_ADJUST = 'nextstep-stock-adjust';
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -32,6 +36,7 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly cnPermission: CnPermissionService,
+    private readonly stockAdjustPermission: StockAdjustPermissionService,
   ) {}
 
   /**
@@ -60,15 +65,39 @@ export class AuthService {
       });
     }
 
-    // Permission gate — เช็คสิทธิ์เมนู menu_so_credit_note ของ SMLERP22
+    // Permission gate — เช็คสิทธิ์เมนูตาม clientCode ที่ login มา
     // ต้อง isRead AND isAdd ถึงผ่าน (mirror logic จาก _isAccessMenuPermision)
-    const perm = await this.cnPermission.checkCreditNoteAccess(
-      provider,
-      user.user_code,
-    );
-    if (!perm.allowed) {
+    //   nextstep-cn-coupon    → menu_so_credit_note
+    //   nextstep-stock-adjust → menu_ic_stk_adjust
+    //   client อื่น (ไม่รู้จัก) → reject ตาม strict policy
+    let permAllowed = false;
+    let permReason = 'unknown-client';
+    let permIsRead = false;
+    let permIsAdd = false;
+
+    if (clientCode === CLIENT_CN_COUPON) {
+      const perm = await this.cnPermission.checkCreditNoteAccess(
+        provider,
+        user.user_code,
+      );
+      permAllowed = perm.allowed;
+      permReason = perm.reason;
+      permIsRead = perm.isRead;
+      permIsAdd = perm.isAdd;
+    } else if (clientCode === CLIENT_STOCK_ADJUST) {
+      const perm = await this.stockAdjustPermission.checkStockAdjustAccess(
+        provider,
+        user.user_code,
+      );
+      permAllowed = perm.allowed;
+      permReason = perm.reason;
+      permIsRead = perm.isRead;
+      permIsAdd = perm.isAdd;
+    }
+
+    if (!permAllowed) {
       this.logger.warn(
-        `Permission denied for ${user.user_code} @ ${provider} — reason=${perm.reason}, isRead=${perm.isRead}, isAdd=${perm.isAdd}`,
+        `Permission denied for ${user.user_code} @ ${provider} via clientCode=${clientCode} — reason=${permReason}, isRead=${permIsRead}, isAdd=${permIsAdd}`,
       );
       throw new ForbiddenException({
         code: ErrorCode.NO_PERMISSION,

@@ -27,4 +27,12 @@ export enum ErrorCode {
 
   // Domain (เพิ่มเมื่อ implement endpoint ใหม่)
   DUPLICATE_DOC_NO = 'DUPLICATE_DOC_NO',
+
+  // Stock Adjust (IA)
+  DOC_FORMAT_NOT_FOUND = 'DOC_FORMAT_NOT_FOUND',
+  EMPTY_LINES = 'EMPTY_LINES',
+  ZERO_AMOUNT = 'ZERO_AMOUNT',
+  ITEM_NOT_FOUND = 'ITEM_NOT_FOUND',
+  UNIT_NOT_FOUND = 'UNIT_NOT_FOUND',
+  INVALID_COST = 'INVALID_COST',
 }

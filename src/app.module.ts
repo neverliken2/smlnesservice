@@ -4,6 +4,8 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { Reflector } from '@nestjs/core';
 
 import { DbModule } from './core/db';
+import { DocNoModule } from './core/doc-no';
+import { ErpOptionModule } from './core/erp-option';
 import { AuthModule, JwtAuthGuard } from './core/auth';
 import { PUBLIC_KEY } from './core/auth/public.decorator';
 import { AuditInterceptor } from './core/audit';
@@ -11,6 +13,7 @@ import { GlobalExceptionFilter } from './core/error';
 import { ResponseInterceptor } from './core/response';
 import { AuthFeatureModule } from './modules/auth';
 import { CreditNoteModule } from './modules/credit-note';
+import { StockAdjustModule } from './modules/stock-adjust';
 import { HealthModule } from './modules/health/health.module';
 import { StatusModule } from './modules/status/status.module';
 import { ExecutionContext, Injectable } from '@nestjs/common';
@@ -42,9 +45,12 @@ class GlobalJwtAuthGuard extends JwtAuthGuard {
       envFilePath: ['.env.local', '.env'],
     }),
     DbModule,
+    DocNoModule,
+    ErpOptionModule,
     AuthModule,
     AuthFeatureModule,
     CreditNoteModule,
+    StockAdjustModule,
     HealthModule,
     StatusModule,
   ],

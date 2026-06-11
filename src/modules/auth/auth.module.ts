@@ -3,6 +3,7 @@ import { AuthController } from './auth.controller';
 import { AuthRepository } from './auth.repository';
 import { AuthService } from './auth.service';
 import { CnPermissionService } from './cn-permission.service';
+import { StockAdjustPermissionService } from './stock-adjust-permission.service';
 import { PreSelectAuthGuard } from './pre-select.guard';
 
 /**
@@ -19,6 +20,7 @@ import { PreSelectAuthGuard } from './pre-select.guard';
     AuthRepository,
     PreSelectAuthGuard,
     CnPermissionService,
+    StockAdjustPermissionService,
   ],
 })
 export class AuthFeatureModule {}
