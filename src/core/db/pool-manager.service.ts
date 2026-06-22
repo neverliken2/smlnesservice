@@ -44,7 +44,7 @@ export class PoolManagerService implements OnModuleInit, OnModuleDestroy {
         user: process.env.DB_USER,
         password: process.env.DB_PASSWORD,
         database: dbName,
-        max: 10,
+        max: parseInt(process.env.DB_POOL_MAX ?? '20', 10),
         min: 1,
         idleTimeoutMillis: TIMEOUTS.IDLE,
         connectionTimeoutMillis: TIMEOUTS.CONNECTION,
