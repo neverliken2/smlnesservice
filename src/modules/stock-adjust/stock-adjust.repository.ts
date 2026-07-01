@@ -44,6 +44,13 @@ export interface ShelfRow {
   whcode: string | null;
 }
 
+export interface ItemLocationDbRow {
+  wh_code: string;
+  wh_name: string | null;
+  shelf_code: string;
+  shelf_name: string | null;
+}
+
 export interface PurchaseHistoryDbRow {
   doc_no: string;
   doc_date: string; // TO_CHAR → 'YYYY-MM-DD'
@@ -180,6 +187,44 @@ export class StockAdjustRepository {
         LIMIT 100`,
       params,
       { timeout: 5_000 },
+    );
+    return result.rows;
+  }
+
+  // ──────────────────────────── Item Locations (Bulk IA by Location) ────────────────────────────
+
+  /**
+   * คืนทุก (wh, shelf) ที่สินค้านี้ **เคยมี transaction** ใน ic_trans_detail
+   * — source-of-truth ให้ตรงกับเมนู "ปรับปรุงสินค้า" (getStockAndCost) ซึ่งคำนวณจาก trans_detail เหมือนกัน
+   *
+   * เดิมเคย query จาก ic_wh_shelf (ตาราง register/allocation) — แต่ลูกค้าจำนวนหนึ่ง
+   * (เช่น WAWACRM) ไม่ได้ register ล่วงหน้า → ic_wh_shelf ว่าง แม้จะมีของจริง
+   * ทำให้ bulk เมนูขึ้น "ไม่มีที่เก็บ" ทั้งที่เมนู single เจอปกติ
+   *
+   * FE filter stock_qty > 0 ทิ้งอยู่แล้ว → shelf ที่ยกออกจนหมดจะไม่โผล่บน UI
+   */
+  async findItemLocations(
+    database: string,
+    itemCode: string,
+  ): Promise<ItemLocationDbRow[]> {
+    const result = await this.pool.query<ItemLocationDbRow>(
+      database,
+      `SELECT DISTINCT
+              d.wh_code,
+              w.name_1 AS wh_name,
+              d.shelf_code,
+              s.name_1 AS shelf_name
+         FROM ic_trans_detail d
+         LEFT JOIN ic_warehouse w ON w.code = d.wh_code
+         LEFT JOIN ic_shelf s ON s.code = d.shelf_code AND s.whcode = d.wh_code
+        WHERE d.item_code = $1
+          AND d.last_status = 0
+          AND d.is_doc_copy = 0
+          AND d.wh_code <> ''
+          AND d.shelf_code <> ''
+        ORDER BY d.wh_code, d.shelf_code`,
+      [itemCode],
+      { timeout: 15_000 },
     );
     return result.rows;
   }
@@ -501,21 +546,21 @@ FROM t2`;
          NOW(), NOW()
        )`,
       [
-        IA_TRANS_TYPE,                          // $1
-        IA_TRANS_FLAG,                          // $2
-        params.docDate,                         // $3
-        params.docNo,                           // $4
-        IA_FORMAT_CODE,                         // $5
-        params.docTime,                         // $6
-        params.docRef,                          // $7
-        params.docRefDate,                      // $8
-        IA_INQUIRY_TYPE,                        // $9
-        params.totalAmount,                     // $10
-        params.whFrom.slice(0, 25),             // $11
-        params.locationFrom.slice(0, 25),       // $12
-        '0000',                                 // $13 branch_code default
-        params.remark,                          // $14
-        APP_CREATOR_CODE,                       // $15
+        IA_TRANS_TYPE, // $1
+        IA_TRANS_FLAG, // $2
+        params.docDate, // $3
+        params.docNo, // $4
+        IA_FORMAT_CODE, // $5
+        params.docTime, // $6
+        params.docRef, // $7
+        params.docRefDate, // $8
+        IA_INQUIRY_TYPE, // $9
+        params.totalAmount, // $10
+        params.whFrom.slice(0, 25), // $11
+        params.locationFrom.slice(0, 25), // $12
+        '0000', // $13 branch_code default
+        params.remark, // $14
+        APP_CREATOR_CODE, // $15
       ],
     );
   }
@@ -583,25 +628,25 @@ FROM t2`;
          NOW()
        )`,
       [
-        IA_TRANS_TYPE,                          // $1
-        IA_TRANS_FLAG,                          // $2
-        params.docDate,                         // $3
-        params.docNo,                           // $4
-        params.docTime,                         // $5
-        params.lineNumber,                      // $6
-        params.itemCode,                        // $7
-        params.itemName.slice(0, 200),          // $8
-        params.unitCode,                        // $9
-        0,                                       // $10 qty = 0 (value-only)
-        0,                                       // $11 price = 0
-        params.sumAmountRounded,                // $12 sum_amount + sum_of_cost + ...
-        params.whCode.slice(0, 25),             // $13
-        params.shelfCode.slice(0, 25),          // $14
-        '0000',                                 // $15 branch_code default
-        params.standValue,                      // $16
-        params.divideValue,                     // $17
-        IA_INQUIRY_TYPE,                        // $18
-        APP_CREATOR_CODE,                       // $19
+        IA_TRANS_TYPE, // $1
+        IA_TRANS_FLAG, // $2
+        params.docDate, // $3
+        params.docNo, // $4
+        params.docTime, // $5
+        params.lineNumber, // $6
+        params.itemCode, // $7
+        params.itemName.slice(0, 200), // $8
+        params.unitCode, // $9
+        0, // $10 qty = 0 (value-only)
+        0, // $11 price = 0
+        params.sumAmountRounded, // $12 sum_amount + sum_of_cost + ...
+        params.whCode.slice(0, 25), // $13
+        params.shelfCode.slice(0, 25), // $14
+        '0000', // $15 branch_code default
+        params.standValue, // $16
+        params.divideValue, // $17
+        IA_INQUIRY_TYPE, // $18
+        APP_CREATOR_CODE, // $19
       ],
     );
   }

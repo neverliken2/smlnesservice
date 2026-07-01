@@ -8,34 +8,28 @@ import {
 import { DocNoService } from '../../core/doc-no/doc-no.service';
 import { ErpOptionService } from '../../core/erp-option/erp-option.service';
 import { ErrorCode } from '../../core/error/error-codes';
-import {
-  IA_FORMAT_CODE,
-  IA_TRANS_FLAG,
-} from './stock-adjust.constants';
+import { IA_FORMAT_CODE, IA_TRANS_FLAG } from './stock-adjust.constants';
 import {
   StockAdjustRepository,
+  type ItemLocationDbRow,
   type ItemRow,
   type PurchaseHistoryDbRow,
   type ShelfRow,
   type UnitRow,
   type WarehouseRow,
 } from './stock-adjust.repository';
-import {
-  expandDocNo,
-  nullIfEmpty,
-  round2,
-  round5,
-} from './stock-adjust.util';
-import type {
-  ItemOption,
-  SearchItemsResponse,
-} from './dto/search-items.dto';
+import { expandDocNo, nullIfEmpty, round2, round5 } from './stock-adjust.util';
+import type { ItemOption, SearchItemsResponse } from './dto/search-items.dto';
 import type {
   GetItemDefaultsResponse,
   UnitOption,
 } from './dto/get-item-defaults.dto';
 import type { WarehouseOption } from './dto/search-warehouses.dto';
 import type { ShelfOption } from './dto/search-shelves.dto';
+import type {
+  GetItemLocationsResponse,
+  ItemLocationRow,
+} from './dto/get-item-locations.dto';
 import type {
   GetPurchaseHistoryResponse,
   PurchaseHistoryRow,
@@ -163,6 +157,104 @@ export class StockAdjustService {
     return rows.map((r) => this.mapShelf(r));
   }
 
+  // ──────────────────────────── Item Locations (Bulk IA by Location) ────────────────────────────
+
+  /**
+   * คืน item + units + ทุก (wh, shelf) ที่สินค้านี้ **เคยมี transaction** ใน ic_trans_detail
+   * พร้อม stock_qty + old_cost ต่อ wh (cache ต่อ wh — กัน query ซ้ำ)
+   *
+   * Notes:
+   * - stock + cost track per-wh ใน SML → 2 shelf ใน wh เดียวกันจะมี stock_qty + old_cost เท่ากัน
+   * - ไม่ throw ถ้า item ไม่มี → คืน item=null, locations=[] (FE จะแสดงข้อความเอง)
+   * - ถ้า item มีอยู่แต่ไม่เคยมี transaction → locations=[] (ไม่ใช่ error)
+   * - FE filter stock_qty > 0 → shelf ที่ยกออกจนหมดจะไม่โผล่บน UI
+   */
+  async getItemLocations(
+    database: string,
+    itemCode: string,
+  ): Promise<GetItemLocationsResponse> {
+    const code = (itemCode || '').trim();
+    if (!code) return { item: null, units: [], locations: [] };
+
+    const itemRow = await this.repo.findItemByCode(database, code);
+    if (!itemRow) return { item: null, units: [], locations: [] };
+
+    const item = this.mapItem(itemRow);
+
+    // units (parallel กับ locations กัน sequential RTT)
+    const [unitRows, locationRows] = await Promise.all([
+      this.repo.findUnitsByItemCode(database, code),
+      this.repo.findItemLocations(database, code),
+    ]);
+
+    const units: UnitOption[] = unitRows.map((u) => this.mapUnit(u));
+    if (units.length === 0 && item.unit_standard) {
+      units.push({
+        code: item.unit_standard,
+        stand_value: 1,
+        divide_value: 1,
+        ratio: 1,
+      });
+    }
+
+    if (locationRows.length === 0) {
+      return { item, units, locations: [] };
+    }
+
+    // unique wh — query stock+cost ครั้งเดียวต่อ wh
+    const uniqueWh = Array.from(new Set(locationRows.map((r) => r.wh_code)));
+    const asOfDate = new Date().toISOString().slice(0, 10);
+    const costCache = new Map<
+      string,
+      { stockQty: number; avgCostEnd: number }
+    >();
+
+    // concurrent batch 5 — กัน DB overload (typical ≤ 5–10 wh ต่อ item)
+    const BATCH = 5;
+    for (let i = 0; i < uniqueWh.length; i += BATCH) {
+      const slice = uniqueWh.slice(i, i + BATCH);
+      await Promise.all(
+        slice.map(async (wh) => {
+          try {
+            const r = await this.repo.getStockAndCost(
+              database,
+              code,
+              wh,
+              asOfDate,
+            );
+            costCache.set(wh, r);
+          } catch (e) {
+            this.logger.warn(
+              `getStockAndCost failed (item=${code}, wh=${wh}): ${
+                e instanceof Error ? e.message : 'unknown'
+              }`,
+            );
+            costCache.set(wh, { stockQty: 0, avgCostEnd: item.average_cost });
+          }
+        }),
+      );
+    }
+
+    const locations: ItemLocationRow[] = locationRows.map(
+      (r: ItemLocationDbRow) => {
+        const c = costCache.get(r.wh_code) || {
+          stockQty: 0,
+          avgCostEnd: item.average_cost,
+        };
+        return {
+          wh_code: r.wh_code,
+          wh_name: (r.wh_name ?? '').trim(),
+          shelf_code: r.shelf_code,
+          shelf_name: (r.shelf_name ?? '').trim(),
+          stock_qty: c.stockQty,
+          old_cost: c.avgCostEnd,
+        };
+      },
+    );
+
+    return { item, units, locations };
+  }
+
   // ──────────────────────────── Purchase History ────────────────────────────
 
   async getPurchaseHistory(
@@ -228,7 +320,12 @@ export class StockAdjustService {
     const unitRows = await this.repo.findUnitsByItemCodes(database, itemCodes);
     const unitMap = new Map<
       string,
-      { code: string; stand_value: number; divide_value: number; ratio: number }[]
+      {
+        code: string;
+        stand_value: number;
+        divide_value: number;
+        ratio: number;
+      }[]
     >();
     for (const u of unitRows) {
       const list = unitMap.get(u.ic_code) || [];
@@ -388,102 +485,105 @@ export class StockAdjustService {
 
     const docTime = this.resolveDocTime(body.doc_time);
 
-    const result = await this.repo.runInTransaction(database, async (client) => {
-      // 1. lock + gen doc_no
-      const fmt = await this.repo.lockDocFormat(client, IA_FORMAT_CODE);
-      if (!fmt) {
-        throw new NotFoundException({
-          code: ErrorCode.DOC_FORMAT_NOT_FOUND,
-          message: `ไม่พบ doc_format "${IA_FORMAT_CODE}" ใน erp_doc_format`,
+    const result = await this.repo.runInTransaction(
+      database,
+      async (client) => {
+        // 1. lock + gen doc_no
+        const fmt = await this.repo.lockDocFormat(client, IA_FORMAT_CODE);
+        if (!fmt) {
+          throw new NotFoundException({
+            code: ErrorCode.DOC_FORMAT_NOT_FOUND,
+            message: `ไม่พบ doc_format "${IA_FORMAT_CODE}" ใน erp_doc_format`,
+          });
+        }
+        const format = fmt.format || '';
+        if (!format) {
+          throw new BadRequestException({
+            code: ErrorCode.VALIDATION_ERROR,
+            message: 'format ของ doc_format ว่าง',
+          });
+        }
+
+        const docNoStr = await expandDocNo({
+          format,
+          docDate: body.doc_date,
+          formatCode: IA_FORMAT_CODE,
+          findLast: async (pgPattern) => {
+            const last = await this.repo.findLastDocNoInTx(
+              client,
+              IA_TRANS_FLAG,
+              IA_FORMAT_CODE,
+              pgPattern,
+            );
+            return last?.doc_no;
+          },
         });
-      }
-      const format = fmt.format || '';
-      if (!format) {
-        throw new BadRequestException({
-          code: ErrorCode.VALIDATION_ERROR,
-          message: 'format ของ doc_format ว่าง',
-        });
-      }
 
-      const docNoStr = await expandDocNo({
-        format,
-        docDate: body.doc_date,
-        formatCode: IA_FORMAT_CODE,
-        findLast: async (pgPattern) => {
-          const last = await this.repo.findLastDocNoInTx(
-            client,
-            IA_TRANS_FLAG,
-            IA_FORMAT_CODE,
-            pgPattern,
-          );
-          return last?.doc_no;
-        },
-      });
+        // 2. check duplicate
+        const exists = await this.repo.isDocNoExists(
+          client,
+          IA_TRANS_FLAG,
+          docNoStr,
+        );
+        if (exists) {
+          throw new ConflictException({
+            code: ErrorCode.DUPLICATE_DOC_NO,
+            message: `เลขที่เอกสาร ${docNoStr} ซ้ำ — กรุณาลองใหม่`,
+          });
+        }
 
-      // 2. check duplicate
-      const exists = await this.repo.isDocNoExists(
-        client,
-        IA_TRANS_FLAG,
-        docNoStr,
-      );
-      if (exists) {
-        throw new ConflictException({
-          code: ErrorCode.DUPLICATE_DOC_NO,
-          message: `เลขที่เอกสาร ${docNoStr} ซ้ำ — กรุณาลองใหม่`,
-        });
-      }
+        // 3. round + compute total
+        type ComputedLine = (typeof validLines)[number] & {
+          sum_amount_rounded: number;
+          wh_code_final: string;
+          shelf_code_final: string;
+        };
+        const computed: ComputedLine[] = validLines.map((l) => ({
+          ...l,
+          wh_code_final: (l.wh_code || body.wh_from) ?? '',
+          shelf_code_final: (l.shelf_code || body.location_from) ?? '',
+          sum_amount_rounded: round5(Number(l.sum_amount)),
+        }));
+        const totalAmount = round2(
+          computed.reduce((s, l) => s + l.sum_amount_rounded, 0),
+        );
 
-      // 3. round + compute total
-      type ComputedLine = (typeof validLines)[number] & {
-        sum_amount_rounded: number;
-        wh_code_final: string;
-        shelf_code_final: string;
-      };
-      const computed: ComputedLine[] = validLines.map((l) => ({
-        ...l,
-        wh_code_final: (l.wh_code || body.wh_from) ?? '',
-        shelf_code_final: (l.shelf_code || body.location_from) ?? '',
-        sum_amount_rounded: round5(Number(l.sum_amount)),
-      }));
-      const totalAmount = round2(
-        computed.reduce((s, l) => s + l.sum_amount_rounded, 0),
-      );
-
-      // 4. INSERT header
-      await this.repo.insertHeader(client, {
-        docDate: body.doc_date,
-        docNo: docNoStr,
-        docTime,
-        docRef: nullIfEmpty(body.doc_ref?.slice(0, 255)),
-        docRefDate: body.doc_ref_date || null,
-        totalAmount,
-        whFrom: body.wh_from || '',
-        locationFrom: body.location_from || '',
-        remark: nullIfEmpty(body.remark?.slice(0, 255)),
-      });
-
-      // 5. INSERT details
-      let lineNumber = 0;
-      for (const ln of computed) {
-        await this.repo.insertDetail(client, {
+        // 4. INSERT header
+        await this.repo.insertHeader(client, {
           docDate: body.doc_date,
           docNo: docNoStr,
           docTime,
-          lineNumber,
-          itemCode: ln.item_code,
-          itemName: ln.item_name || '',
-          unitCode: ln.unit_code,
-          sumAmountRounded: ln.sum_amount_rounded,
-          whCode: ln.wh_code_final,
-          shelfCode: ln.shelf_code_final,
-          standValue: ln.stand_value,
-          divideValue: ln.divide_value,
+          docRef: nullIfEmpty(body.doc_ref?.slice(0, 255)),
+          docRefDate: body.doc_ref_date || null,
+          totalAmount,
+          whFrom: body.wh_from || '',
+          locationFrom: body.location_from || '',
+          remark: nullIfEmpty(body.remark?.slice(0, 255)),
         });
-        lineNumber++;
-      }
 
-      return { doc_no: docNoStr, total_amount: totalAmount };
-    });
+        // 5. INSERT details
+        let lineNumber = 0;
+        for (const ln of computed) {
+          await this.repo.insertDetail(client, {
+            docDate: body.doc_date,
+            docNo: docNoStr,
+            docTime,
+            lineNumber,
+            itemCode: ln.item_code,
+            itemName: ln.item_name || '',
+            unitCode: ln.unit_code,
+            sumAmountRounded: ln.sum_amount_rounded,
+            whCode: ln.wh_code_final,
+            shelfCode: ln.shelf_code_final,
+            standValue: ln.stand_value,
+            divideValue: ln.divide_value,
+          });
+          lineNumber++;
+        }
+
+        return { doc_no: docNoStr, total_amount: totalAmount };
+      },
+    );
 
     this.logger.log(
       `Saved IA ${result.doc_no} total=${result.total_amount} lines=${validLines.length}`,

@@ -42,6 +42,7 @@ import {
   GetPurchaseHistoryQuerySchema,
   type GetPurchaseHistoryResponse,
 } from './dto/get-purchase-history.dto';
+import type { GetItemLocationsResponse } from './dto/get-item-locations.dto';
 import {
   ValidateImportBodySchema,
   type ValidateImportResponse,
@@ -145,6 +146,24 @@ export class StockAdjustController {
   ): Promise<ShelfOption[]> {
     const parsed = this.parse(SearchShelvesQuerySchema, query);
     return this.svc.searchShelves(tenant.database, parsed.query, parsed.whCode);
+  }
+
+  // ──────────────────────────── /item-locations/:itemCode ────────────────────────────
+
+  @Get('item-locations/:itemCode')
+  @ApiOperation({
+    summary: 'Get item locations + stock + cost (Bulk IA by Location)',
+    description:
+      'คืนทุก (wh, shelf) ที่สินค้านี้เคยมี transaction ใน ic_trans_detail พร้อม stock_qty + old_cost ' +
+      'ต่อ wh (cache ต่อ wh — query getStockAndCost ครั้งเดียวต่อ wh). ' +
+      'ใช้กับหน้า "ปรับต้นทุนทุกที่เก็บ" — 1 ใบเอกสารต่อแถวที่ user เลือก.',
+  })
+  @ApiParam({ name: 'itemCode', example: '02-0006' })
+  async getItemLocations(
+    @Tenant() tenant: TenantContext,
+    @Param('itemCode') itemCode: string,
+  ): Promise<GetItemLocationsResponse> {
+    return this.svc.getItemLocations(tenant.database, itemCode);
   }
 
   // ──────────────────────────── /purchase-history/:itemCode ────────────────────────────
