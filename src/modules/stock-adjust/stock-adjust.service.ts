@@ -96,6 +96,7 @@ export class StockAdjustService {
     database: string,
     itemCode: string,
     whCode: string,
+    shelfCode: string = '',
   ): Promise<GetItemDefaultsResponse> {
     const code = (itemCode || '').trim();
     if (!code) return { item: null, units: [], stock_qty: 0 };
@@ -118,8 +119,10 @@ export class StockAdjustService {
     }
 
     // ถ้ามี whCode → query stock + cost + override average_cost
+    // ถ้ามี shelfCode ด้วย → คำนวณ per (wh, shelf) แทน per wh
     let stockQty = 0;
     const wh = (whCode || '').trim();
+    const shelf = (shelfCode || '').trim();
     if (wh) {
       const today = new Date().toISOString().slice(0, 10);
       const { stockQty: q, avgCostEnd } = await this.repo.getStockAndCost(
@@ -127,9 +130,10 @@ export class StockAdjustService {
         code,
         wh,
         today,
+        shelf || undefined,
       );
       stockQty = q;
-      item.average_cost = avgCostEnd; // override ด้วยทุนจริงในคลัง
+      item.average_cost = avgCostEnd; // override ด้วยทุนจริงในคลัง/ที่เก็บ
     }
 
     return { item, units, stock_qty: stockQty };
@@ -161,10 +165,10 @@ export class StockAdjustService {
 
   /**
    * คืน item + units + ทุก (wh, shelf) ที่สินค้านี้ **เคยมี transaction** ใน ic_trans_detail
-   * พร้อม stock_qty + old_cost ต่อ wh (cache ต่อ wh — กัน query ซ้ำ)
+   * พร้อม stock_qty + old_cost คำนวณ **per (wh, shelf)** — ตรงกับ SMLERP22
+   * balanceType=ยอดคงเหลือตามที่เก็บ
    *
    * Notes:
-   * - stock + cost track per-wh ใน SML → 2 shelf ใน wh เดียวกันจะมี stock_qty + old_cost เท่ากัน
    * - ไม่ throw ถ้า item ไม่มี → คืน item=null, locations=[] (FE จะแสดงข้อความเอง)
    * - ถ้า item มีอยู่แต่ไม่เคยมี transaction → locations=[] (ไม่ใช่ error)
    * - FE filter stock_qty > 0 → shelf ที่ยกออกจนหมดจะไม่โผล่บน UI
@@ -201,35 +205,36 @@ export class StockAdjustService {
       return { item, units, locations: [] };
     }
 
-    // unique wh — query stock+cost ครั้งเดียวต่อ wh
-    const uniqueWh = Array.from(new Set(locationRows.map((r) => r.wh_code)));
+    // query stock + cost per (wh, shelf) — SML คงเหลือแยกตามที่เก็บ
     const asOfDate = new Date().toISOString().slice(0, 10);
     const costCache = new Map<
       string,
       { stockQty: number; avgCostEnd: number }
     >();
 
-    // concurrent batch 5 — กัน DB overload (typical ≤ 5–10 wh ต่อ item)
+    // concurrent batch 5 — กัน DB overload (typical ≤ 5–20 shelf ต่อ item)
     const BATCH = 5;
-    for (let i = 0; i < uniqueWh.length; i += BATCH) {
-      const slice = uniqueWh.slice(i, i + BATCH);
+    for (let i = 0; i < locationRows.length; i += BATCH) {
+      const slice = locationRows.slice(i, i + BATCH);
       await Promise.all(
-        slice.map(async (wh) => {
+        slice.map(async (loc) => {
+          const key = `${loc.wh_code}|${loc.shelf_code}`;
           try {
             const r = await this.repo.getStockAndCost(
               database,
               code,
-              wh,
+              loc.wh_code,
               asOfDate,
+              loc.shelf_code,
             );
-            costCache.set(wh, r);
+            costCache.set(key, r);
           } catch (e) {
             this.logger.warn(
-              `getStockAndCost failed (item=${code}, wh=${wh}): ${
+              `getStockAndCost failed (item=${code}, wh=${loc.wh_code}, shelf=${loc.shelf_code}): ${
                 e instanceof Error ? e.message : 'unknown'
               }`,
             );
-            costCache.set(wh, { stockQty: 0, avgCostEnd: item.average_cost });
+            costCache.set(key, { stockQty: 0, avgCostEnd: item.average_cost });
           }
         }),
       );
@@ -237,7 +242,8 @@ export class StockAdjustService {
 
     const locations: ItemLocationRow[] = locationRows.map(
       (r: ItemLocationDbRow) => {
-        const c = costCache.get(r.wh_code) || {
+        const key = `${r.wh_code}|${r.shelf_code}`;
+        const c = costCache.get(key) || {
           stockQty: 0,
           avgCostEnd: item.average_cost,
         };

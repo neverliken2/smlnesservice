@@ -3,6 +3,7 @@ import type { ItemOption } from './search-items.dto';
 
 export const GetItemDefaultsQuerySchema = z.object({
   whCode: z.string().max(50).default(''),
+  shelfCode: z.string().max(50).default(''),
 });
 export type GetItemDefaultsQuery = z.infer<typeof GetItemDefaultsQuerySchema>;
 

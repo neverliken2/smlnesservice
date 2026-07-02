@@ -101,17 +101,23 @@ export class StockAdjustController {
   @ApiOperation({
     summary: 'Get item defaults (info + units + stock + cost)',
     description:
-      'ดึงข้อมูล item + รายการหน่วยจาก ic_unit_use (status=1). ถ้าระบุ whCode → query stock+cost mirror SMLERP `_stkStockInfoAndBalanceQuery` (ปกติ) แล้ว override average_cost = avgCostEnd',
+      'ดึงข้อมูล item + รายการหน่วยจาก ic_unit_use (status=1). ถ้าระบุ whCode → query stock+cost (mirror SMLERP `_stkStockInfoAndBalanceQuery` ปกติ) แล้ว override average_cost = avgCostEnd. ถ้าระบุ shelfCode ด้วย → คำนวณ per (wh, shelf) แทน per wh',
   })
   @ApiParam({ name: 'itemCode', example: '02-0006' })
   @ApiQuery({ name: 'whCode', required: false, example: 'MMA01' })
+  @ApiQuery({ name: 'shelfCode', required: false, example: 'SH101' })
   async getItemDefaults(
     @Tenant() tenant: TenantContext,
     @Param('itemCode') itemCode: string,
     @Query() query: unknown,
   ): Promise<GetItemDefaultsResponse> {
     const parsed = this.parse(GetItemDefaultsQuerySchema, query);
-    return this.svc.getItemDefaults(tenant.database, itemCode, parsed.whCode);
+    return this.svc.getItemDefaults(
+      tenant.database,
+      itemCode,
+      parsed.whCode,
+      parsed.shelfCode,
+    );
   }
 
   // ──────────────────────────── /warehouses ────────────────────────────

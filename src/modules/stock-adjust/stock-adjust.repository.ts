@@ -267,6 +267,11 @@ export class StockAdjustRepository {
   /**
    * Mirror SMLERPControl._icInfoProcess._stkStockInfoAndBalanceQuery (costMode=ปกติ)
    *
+   * shelfCode:
+   *   - undefined → balanceType=ยอดคงเหลือตามคลัง (GROUP BY item, wh)
+   *   - provided  → balanceType=ยอดคงเหลือตามที่เก็บ (GROUP BY item, wh, shelf)
+   *   balance_qty + avgCostEnd (subquery ทุนล่าสุด) filter shelf ทั้งคู่
+   *
    * Trans flag groups:
    *   เข้า: 70,54,60,58,310,12 ; 66(qty>0) ; 14(inq=0) ; 48(inq<2)
    *   ออก: 56,68,72,44        ; 66(qty<0) ; 46(inq IN 0,2) ; 16(inq IN 0,2) ; 311(inq=0)
@@ -281,8 +286,20 @@ export class StockAdjustRepository {
     itemCode: string,
     whCode: string,
     asOfDate: string,
+    shelfCode?: string,
   ): Promise<{ stockQty: number; avgCostEnd: number }> {
     if (!itemCode || !whCode) return { stockQty: 0, avgCostEnd: 0 };
+
+    const shelf = (shelfCode || '').trim();
+    const shelfFilterOuter = shelf ? ` AND shelf_code = $4` : '';
+    // เดิม subquery ทุนล่าสุด filter แค่ item_code (mirror SMLERP22 pattern)
+    // ถ้า caller ส่ง shelf → tighten subquery ให้ตรง (wh, shelf) ที่ user เลือก
+    const whShelfFilterInner = shelf
+      ? ` AND d.wh_code = $2 AND d.shelf_code = $4`
+      : '';
+    const groupByCols = shelf
+      ? `item_code, wh_code, shelf_code`
+      : `item_code, wh_code`;
 
     const sql = `
 WITH t1 AS (
@@ -332,8 +349,8 @@ WITH t1 AS (
     AND (SELECT item_type FROM ic_inventory WHERE code = ic_trans_detail.item_code) NOT IN (1,3)
     AND doc_date_calc <= $3
     AND item_code = $1
-    AND wh_code = $2
-  GROUP BY item_code, wh_code
+    AND wh_code = $2${shelfFilterOuter}
+  GROUP BY ${groupByCols}
 ),
 t2 AS (
   SELECT
@@ -353,7 +370,7 @@ SELECT
     (SELECT average_cost
        FROM ic_trans_detail d
        WHERE d.last_status=0
-         AND d.item_code = t2.ic_code
+         AND d.item_code = t2.ic_code${whShelfFilterInner}
          AND d.doc_date_calc <= $3
          AND (
            (d.trans_flag IN (70,54,60,58,310,12)
@@ -375,10 +392,14 @@ SELECT
   ), 0) AS average_cost_end
 FROM t2`;
 
+    const params: (string | number)[] = shelf
+      ? [itemCode, whCode, asOfDate, shelf]
+      : [itemCode, whCode, asOfDate];
+
     const res = await this.pool.query<StockAndCostRow>(
       database,
       sql,
-      [itemCode, whCode, asOfDate],
+      params,
       { timeout: 30_000, isReport: true },
     );
 
