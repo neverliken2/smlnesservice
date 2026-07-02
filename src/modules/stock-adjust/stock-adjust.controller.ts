@@ -226,6 +226,7 @@ export class StockAdjustController {
           },
         },
         wh_code: { type: 'string' },
+        shelf_code: { type: 'string' },
       },
     },
   })

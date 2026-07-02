@@ -302,7 +302,8 @@ export class StockAdjustService {
     database: string,
     body: ValidateImportBody,
   ): Promise<ValidateImportResponse> {
-    const { rows, wh_code } = body;
+    const { rows, wh_code, shelf_code } = body;
+    const shelf = (shelf_code || '').trim();
     if (rows.length === 0) {
       return { rows: [], total: 0, ok_count: 0, error_count: 0 };
     }
@@ -424,6 +425,7 @@ export class StockAdjustService {
               itemCode,
               wh_code,
               asOfDate,
+              shelf || undefined,
             );
             row.old_cost = avgCostEnd;
             row.stock_qty = stockQty;

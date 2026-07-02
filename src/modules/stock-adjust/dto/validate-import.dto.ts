@@ -13,6 +13,7 @@ export const ValidateImportBodySchema = z.object({
     )
     .max(1000, 'เกินขีดจำกัด 1,000 บรรทัด'),
   wh_code: z.string().min(1, 'กรุณาระบุคลัง'),
+  shelf_code: z.string().default(''),
 });
 export type ValidateImportBody = z.infer<typeof ValidateImportBodySchema>;
 
