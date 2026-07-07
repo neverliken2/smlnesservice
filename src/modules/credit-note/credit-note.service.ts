@@ -107,7 +107,9 @@ export class CreditNoteService {
     docNos: string[],
   ): Promise<Record<string, boolean>> {
     // กัน abuse — limit ที่ 200 docNos/call
-    const safeDocNos = (docNos || []).slice(0, 200).filter((d) => typeof d === 'string' && d.length > 0);
+    const safeDocNos = (docNos || [])
+      .slice(0, 200)
+      .filter((d) => typeof d === 'string' && d.length > 0);
     if (safeDocNos.length === 0) return {};
     const rows = await this.repo.getFullyUsedStatus(database, safeDocNos);
     const map: Record<string, boolean> = {};
@@ -221,7 +223,8 @@ export class CreditNoteService {
       date_expire: toISODate(r.date_expire),
       single_use: Number(r.single_use) || 0,
       // ถ้า last_editor_code = APP_CREATOR_CODE = CN เก่าก่อนเก็บ staff_name → ส่ง '' กลับไป
-      staff_name: r.staff_name && r.staff_name !== APP_CREATOR_CODE ? r.staff_name : '',
+      staff_name:
+        r.staff_name && r.staff_name !== APP_CREATOR_CODE ? r.staff_name : '',
     }));
   }
 
@@ -268,7 +271,7 @@ export class CreditNoteService {
    *   2. lock source invoice header + detail (FOR UPDATE)
    *   3. validate inquiry_type compatibility กับ source
    *   4. pro-rata calculation (qty + price ratio)
-   *   5. decide issueCoupon (cash inquiry + erp_option.cn_coupon_only)
+   *   5. decide issueCoupon (cash inquiry)
    *   6. INSERT ic_trans (header)
    *   7. INSERT ic_trans_detail (lines)
    *   8. UPDATE source invoice used_status=1
@@ -568,17 +571,9 @@ export class CreditNoteService {
       const total_amount = round2(total_value - overall_discount);
       const sourceDocDate = toISODate(sourceHeader.doc_date);
 
-      // 5. decide issueCoupon (cash inquiry + erp_option.cn_coupon_only)
-      let issueCoupon = false;
+      // 5. decide issueCoupon (cash inquiry → ออกคูปองเสมอ)
       const cashInquiryTypes = [1, 3, 5];
-      if (cashInquiryTypes.includes(payload.inquiry_type)) {
-        const optResult = await client.query<{ cn_coupon_only: number | null }>(
-          `SELECT cn_coupon_only FROM erp_option LIMIT 1`,
-        );
-        if ((optResult.rows[0]?.cn_coupon_only ?? 0) === 1) {
-          issueCoupon = true;
-        }
-      }
+      const issueCoupon = cashInquiryTypes.includes(payload.inquiry_type);
 
       // Self-redeem: ออกคูปอง → CN จ่ายด้วยคูปอง → ic_trans.balance=0
       // แต่ coupon ยังใช้ได้ → coupon_list.balance_amount = total_amount
@@ -658,7 +653,7 @@ export class CreditNoteService {
           payload.inquiry_type,
           sourceHeader.discount_word || '',
           (payload.remark || '').slice(0, 200),
-          APP_CREATOR_CODE,                                   // $25 creator_code — filter marker คงเดิม
+          APP_CREATOR_CODE, // $25 creator_code — filter marker คงเดิม
           (payload.staff_name || '').slice(0, 200) || APP_CREATOR_CODE, // $26 last_editor_code — user_name ของผู้ออก CN
         ],
       );

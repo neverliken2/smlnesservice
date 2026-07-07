@@ -103,9 +103,21 @@ export class CreditNoteController {
       'Default limit=30. is_fully_used = false ทุก row — เรียก POST /sales-invoices/fully-used-status เพื่อ batch fetch สถานะ',
   })
   @ApiQuery({ name: 'custCode', required: false })
-  @ApiQuery({ name: 'query', required: false, description: 'ค้นหาจาก doc_no / cust_code / ชื่อลูกค้า (ILIKE)' })
-  @ApiQuery({ name: 'limit', required: false, description: 'default 30, max 100' })
-  @ApiQuery({ name: 'offset', required: false, description: 'pagination offset' })
+  @ApiQuery({
+    name: 'query',
+    required: false,
+    description: 'ค้นหาจาก doc_no / cust_code / ชื่อลูกค้า (ILIKE)',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'default 30, max 100',
+  })
+  @ApiQuery({
+    name: 'offset',
+    required: false,
+    description: 'pagination offset',
+  })
   async listSalesInvoices(
     @Tenant() tenant: TenantContext,
     @Query() query: unknown,
@@ -207,7 +219,7 @@ export class CreditNoteController {
     summary: 'Save Credit Note',
     description:
       'สร้าง CN ใหม่ (trans_flag=48): pro-rata จาก source invoice + ออก coupon ถ้า ' +
-      'inquiry_type เป็น cash (1/3/5) และ erp_option.cn_coupon_only=1. ' +
+      'inquiry_type เป็น cash (1/3/5). ' +
       'INSERT 4 tables ใน 1 transaction (ic_trans, ic_trans_detail, cb_trans, ap_ar_trans_detail) ' +
       '+ coupon_list ถ้าออกคูปอง',
   })
