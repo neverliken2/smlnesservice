@@ -488,9 +488,8 @@ export class DashboardService {
         transactionCount: transactions.length,
         depositCount: transactions.filter((t) => safeNumber(t.amount_in) > 0)
           .length,
-        withdrawCount: transactions.filter(
-          (t) => safeNumber(t.amount_out) > 0,
-        ).length,
+        withdrawCount: transactions.filter((t) => safeNumber(t.amount_out) > 0)
+          .length,
       },
     };
   }

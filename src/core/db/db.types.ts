@@ -28,4 +28,12 @@ export const TIMEOUTS = {
   IDLE: 60_000,
 } as const;
 
-export type SqlParam = string | number | boolean | null | Date | Buffer | string[] | number[];
+export type SqlParam =
+  | string
+  | number
+  | boolean
+  | null
+  | Date
+  | Buffer
+  | string[]
+  | number[];

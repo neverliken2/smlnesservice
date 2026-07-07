@@ -145,7 +145,9 @@ export class CreditNoteRepository {
       const like = `%${query}%`;
       params.push(like);
       const n = params.length;
-      where.push(`(t.doc_no ILIKE $${n} OR t.cust_code ILIKE $${n} OR COALESCE(c.name_1,'') ILIKE $${n})`);
+      where.push(
+        `(t.doc_no ILIKE $${n} OR t.cust_code ILIKE $${n} OR COALESCE(c.name_1,'') ILIKE $${n})`,
+      );
     }
 
     // is_fully_used คำนวณแยก endpoint (POST /sales-invoices/fully-used-status)
@@ -181,7 +183,10 @@ export class CreditNoteRepository {
     docNos: string[],
   ): Promise<{ doc_no: string; is_fully_used: boolean }[]> {
     if (docNos.length === 0) return [];
-    const result = await this.pool.query<{ doc_no: string; is_fully_used: boolean }>(
+    const result = await this.pool.query<{
+      doc_no: string;
+      is_fully_used: boolean;
+    }>(
       database,
       `WITH inv_lines AS (
          SELECT d.doc_no, d.line_number, d.item_code,

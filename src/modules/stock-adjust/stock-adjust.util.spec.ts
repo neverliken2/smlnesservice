@@ -1,9 +1,4 @@
-import {
-  expandDocNo,
-  nullIfEmpty,
-  round2,
-  round5,
-} from './stock-adjust.util';
+import { expandDocNo, nullIfEmpty, round2, round5 } from './stock-adjust.util';
 
 describe('stock-adjust.util', () => {
   // ──────────────────────────── round2 ────────────────────────────

@@ -58,10 +58,7 @@ import {
   ReceivableOverdueQuerySchema,
   type ReceivableOverdueResponse,
 } from './dto/receivable-overdue.dto';
-import {
-  ArAgingQuerySchema,
-  type ArAgingResponse,
-} from './dto/ar-aging.dto';
+import { ArAgingQuerySchema, type ArAgingResponse } from './dto/ar-aging.dto';
 import {
   ApMovementQuerySchema,
   type ApMovementResponse,
@@ -70,10 +67,7 @@ import {
   PayableOverdueQuerySchema,
   type PayableOverdueResponse,
 } from './dto/payable-overdue.dto';
-import {
-  ApAgingQuerySchema,
-  type ApAgingResponse,
-} from './dto/ap-aging.dto';
+import { ApAgingQuerySchema, type ApAgingResponse } from './dto/ap-aging.dto';
 
 /**
  * Dashboard Controller — REST endpoints สำหรับ NextStep Dashboard
@@ -296,9 +290,7 @@ export class DashboardController {
       'List pass books จาก erp_pass_book + เติม bank name (erp_bank) และ branches (erp_bank_branch). ' +
       'ใช้ populate dropdown filters ของหน้า Bank Statement.',
   })
-  async bankBooks(
-    @Tenant() tenant: TenantContext,
-  ): Promise<BankBooksResponse> {
+  async bankBooks(@Tenant() tenant: TenantContext): Promise<BankBooksResponse> {
     return this.svc.bankBooks(tenant);
   }
 

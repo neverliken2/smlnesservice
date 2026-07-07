@@ -7,10 +7,7 @@ export const SalesOverviewQuerySchema = z.object({
     .string()
     .regex(ISO_DATE, 'startDate ต้องเป็น YYYY-MM-DD')
     .optional(),
-  endDate: z
-    .string()
-    .regex(ISO_DATE, 'endDate ต้องเป็น YYYY-MM-DD')
-    .optional(),
+  endDate: z.string().regex(ISO_DATE, 'endDate ต้องเป็น YYYY-MM-DD').optional(),
   branch: z.string().max(50).optional(),
   warehouse: z.string().max(50).optional(),
 });

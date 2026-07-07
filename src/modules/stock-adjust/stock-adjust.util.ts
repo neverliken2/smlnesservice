@@ -14,9 +14,7 @@ export function round5(n: number): number {
   return Math.round(n * 100000) / 100000;
 }
 
-export function nullIfEmpty(
-  s: string | null | undefined,
-): string | null {
+export function nullIfEmpty(s: string | null | undefined): string | null {
   if (s === null || s === undefined) return null;
   const t = String(s).trim();
   return t === '' ? null : t;
@@ -46,9 +44,7 @@ export interface ExpandDocNoOptions {
   findLast: (pgPattern: string) => Promise<string | undefined>;
 }
 
-export async function expandDocNo(
-  opts: ExpandDocNoOptions,
-): Promise<string> {
+export async function expandDocNo(opts: ExpandDocNoOptions): Promise<string> {
   const { format, docDate, formatCode, findLast } = opts;
 
   const runMatch = /(#+)/.exec(format);

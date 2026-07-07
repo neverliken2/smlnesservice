@@ -17,10 +17,7 @@ import type {
   ProfitProductRow,
   ProfitProductTotals,
 } from './dto/profit-product.dto';
-import type {
-  BankBalance,
-  BankTransaction,
-} from './dto/bank-statement.dto';
+import type { BankBalance, BankTransaction } from './dto/bank-statement.dto';
 import type { ArMovementRow } from './dto/ar-movement.dto';
 import type { ApMovementRow } from './dto/ap-movement.dto';
 
@@ -142,8 +139,7 @@ export class DashboardRepository {
       conds.push(`AND warehouse_code = $${params.length}`);
     }
 
-    const inquiryFilter =
-      transFlag === 46 ? 'AND inquiry_type IN (0, 2)' : '';
+    const inquiryFilter = transFlag === 46 ? 'AND inquiry_type IN (0, 2)' : '';
 
     const sql = `
       SELECT
@@ -180,9 +176,16 @@ export class DashboardRepository {
   async getStockBalance(
     database: string,
     q: StockBalanceQuery,
-  ): Promise<Omit<StockBalanceRow, 'avg_cost_in' | 'avg_cost_out' | 'avg_cost' | 'balance_amount'>[]> {
+  ): Promise<
+    Omit<
+      StockBalanceRow,
+      'avg_cost_in' | 'avg_cost_out' | 'avg_cost' | 'balance_amount'
+    >[]
+  > {
     const params: (string | number)[] = [];
-    const inventoryConds: string[] = ['ic_inventory.item_type NOT IN (1, 3, 5)'];
+    const inventoryConds: string[] = [
+      'ic_inventory.item_type NOT IN (1, 3, 5)',
+    ];
 
     if (q.icCodeList) {
       const codes = q.icCodeList
@@ -303,7 +306,10 @@ export class DashboardRepository {
     `;
 
     const result = await this.pool.query<
-      Omit<StockBalanceRow, 'avg_cost_in' | 'avg_cost_out' | 'avg_cost' | 'balance_amount'>
+      Omit<
+        StockBalanceRow,
+        'avg_cost_in' | 'avg_cost_out' | 'avg_cost' | 'balance_amount'
+      >
     >(database, sql, params, { isReport: true });
 
     return result.rows;
@@ -845,18 +851,17 @@ export class DashboardRepository {
     return {
       rows: rowsRes.rows,
       totalRecords,
-      totals:
-        totalsRes.rows[0] ?? {
-          qty_sale: 0,
-          amount_sale: 0,
-          cost_sale: 0,
-          qty_sale_return: 0,
-          amount_sale_return: 0,
-          cost_sale_return: 0,
-          net_amount_sale: 0,
-          net_cost_sale: 0,
-          profit: 0,
-        },
+      totals: totalsRes.rows[0] ?? {
+        qty_sale: 0,
+        amount_sale: 0,
+        cost_sale: 0,
+        qty_sale_return: 0,
+        amount_sale_return: 0,
+        cost_sale_return: 0,
+        net_amount_sale: 0,
+        net_cost_sale: 0,
+        profit: 0,
+      },
     };
   }
 

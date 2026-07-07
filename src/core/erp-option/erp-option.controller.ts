@@ -1,5 +1,10 @@
 import { Controller, Get } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Tenant } from '../tenant/tenant.decorator';
 import type { TenantContext } from '../tenant/tenant.types';
 import { ErpOptionService } from './erp-option.service';
