@@ -196,6 +196,21 @@ Error path → [GlobalExceptionFilter] → {success:false, error:{code, message}
 |---|---|---|---|
 | `PORT` | ❌ | 3000 | |
 | `CONNECTIONS_FILE` | ❌ | — | path ไฟล์ connection registry (Model B) — provider ที่ไม่อยู่ในไฟล์ fallback ไป `DB_HOST` |
+
+### ⚠️ Model B routing precedence (สำคัญ — เช็คก่อนเพิ่มลูกค้าทุกราย)
+
+```
+provider ที่ login เข้ามา
+  1. เจอใน connections.json  → ไปตามไฟล์ (ชนะเสมอ)
+  2. ไม่เจอในไฟล์            → fallback ไป DB_HOST env
+```
+
+- **ไฟล์ชนะ env เสมอ** — ถ้าใส่ provider ที่ซ้ำกับ provider บนฐาน env fallback (เช่น
+  บริษัทมี `smlerpmaindata` และลูกค้าก็ใช้ provider `data`) provider ฝั่ง env จะถูก "บัง"
+  ทันที ไม่มีทาง login เข้าฐานนั้นผ่าน instance นี้ได้อีก
+- ก่อนรับลูกค้าเข้า Model B: เช็คว่าชื่อ provider ของลูกค้า**ไม่ชน**กับ provider ที่มีอยู่แล้ว
+  (ทั้งในไฟล์และบนฐาน env fallback) — ถ้าชนต้อง rename ฐานฝั่งใดฝั่งหนึ่ง หรือแยก instance
+- เคสจริง (2026-07-08): ลูกค้า kantalux ใช้ provider `data` — generic มาก เสี่ยงชนสูง
 | `DB_HOST` | ✅* | — | *ไม่บังคับถ้าทุก provider อยู่ใน `CONNECTIONS_FILE` |
 | `DB_PORT` | ❌ | 5432 | |
 | `DB_USER` | ✅ | — | |
