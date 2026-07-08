@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ErrorCode } from '../error/error-codes';
+import type { TenantRef } from '../db/db.types';
 import { DocNoRepository } from './doc-no.repository';
 import { NextDocNoResult } from './doc-no.types';
 
@@ -26,7 +27,7 @@ export class DocNoService {
   constructor(private readonly repo: DocNoRepository) {}
 
   async getNextDocNo(
-    database: string,
+    tenant: TenantRef,
     formatCode: string,
     docDate: string,
     transFlag: number,
@@ -49,7 +50,7 @@ export class DocNoService {
     const [, yyyy, mm, dd] = dateMatch;
     const yy = yyyy.slice(-2);
 
-    const fmt = await this.repo.findDocFormat(database, code);
+    const fmt = await this.repo.findDocFormat(tenant, code);
     if (!fmt) {
       throw new NotFoundException({
         code: ErrorCode.NOT_FOUND,
@@ -90,7 +91,7 @@ export class DocNoService {
     const pgPattern = `^${escapeRegex(prefix)}[0-9]{${digitCount}}${escapeRegex(suffix)}$`;
 
     const last = await this.repo.findLastDocNo(
-      database,
+      tenant,
       transFlag,
       code,
       pgPattern,

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PoolManagerService } from '../../core/db/pool-manager.service';
+import type { TenantRef } from '../../core/db/db.types';
 
 /**
  * Menu code ที่ NextStep CN Coupon ใช้เป็น single gate ตอน login
@@ -38,9 +39,8 @@ export class CnPermissionService {
 
   constructor(private readonly pool: PoolManagerService) {}
 
-  private authDbName(provider: string): string {
-    const prefix = process.env.DB_NAME_PREFIX ?? 'smlerpmain';
-    return `${prefix}${provider.toLowerCase()}`;
+  private authTenant(provider: string): TenantRef {
+    return { provider, database: this.pool.authDbName(provider) };
   }
 
   async checkCreditNoteAccess(
@@ -56,10 +56,10 @@ export class CnPermissionService {
       };
     }
 
-    const dbName = this.authDbName(provider);
+    const tenant = this.authTenant(provider);
 
-    const userBlob = await this.loadUserBlob(dbName, usercode);
-    const groupBlobs = await this.loadGroupBlobs(dbName, usercode);
+    const userBlob = await this.loadUserBlob(tenant, usercode);
+    const groupBlobs = await this.loadGroupBlobs(tenant, usercode);
 
     const allBlobs = [userBlob, ...groupBlobs].filter(
       (b): b is Buffer => b !== null && b.length > 0,
@@ -111,11 +111,11 @@ export class CnPermissionService {
   }
 
   private async loadUserBlob(
-    dbName: string,
+    tenant: TenantRef,
     usercode: string,
   ): Promise<Buffer | null> {
     const result = await this.pool.query<{ image_file: Buffer | null }>(
-      dbName,
+      tenant,
       `SELECT image_file FROM sml_permissions_user
         WHERE UPPER(usercode) = UPPER($1)
         LIMIT 1`,
@@ -126,11 +126,11 @@ export class CnPermissionService {
   }
 
   private async loadGroupBlobs(
-    dbName: string,
+    tenant: TenantRef,
     usercode: string,
   ): Promise<Buffer[]> {
     const result = await this.pool.query<{ image_file: Buffer | null }>(
-      dbName,
+      tenant,
       `SELECT image_file FROM sml_permissions_group
         WHERE UPPER(usercode) IN (
           SELECT UPPER(group_code)

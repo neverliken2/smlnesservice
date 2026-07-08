@@ -5,10 +5,11 @@
 
 import { Global, Module } from '@nestjs/common';
 import { PoolManagerService } from './pool-manager.service';
+import { ConnectionRegistryService } from './connection-registry.service';
 
 @Global()
 @Module({
-  providers: [PoolManagerService],
-  exports: [PoolManagerService],
+  providers: [ConnectionRegistryService, PoolManagerService],
+  exports: [ConnectionRegistryService, PoolManagerService],
 })
 export class DbModule {}

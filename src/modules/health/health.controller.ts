@@ -50,16 +50,29 @@ export class HealthController {
     };
 
     if (provider && /^[a-zA-Z0-9]{1,20}$/.test(provider)) {
-      const prefix = process.env.DB_NAME_PREFIX ?? 'smlerpmain';
-      const dbName = `${prefix}${provider.toLowerCase()}`;
-      const result = await this.pool.checkHealth(dbName);
-      base.db = {
-        database: dbName,
-        healthy: result.healthy,
-        latencyMs: result.latencyMs,
-        error: result.error,
-      };
-      if (!result.healthy) base.status = 'degraded';
+      try {
+        const dbName = this.pool.authDbName(provider);
+        const result = await this.pool.checkHealth({
+          provider,
+          database: dbName,
+        });
+        base.db = {
+          database: dbName,
+          healthy: result.healthy,
+          latencyMs: result.latencyMs,
+          error: result.error,
+        };
+        if (!result.healthy) base.status = 'degraded';
+      } catch (error) {
+        // provider ไม่อยู่ใน registry และไม่มี env fallback — ตอบ degraded ไม่ใช่ 500
+        base.db = {
+          database: `(unresolved: ${provider})`,
+          healthy: false,
+          latencyMs: 0,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        };
+        base.status = 'degraded';
+      }
     }
 
     return base;

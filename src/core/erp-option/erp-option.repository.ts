@@ -1,14 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { PoolManagerService } from '../db/pool-manager.service';
+import type { TenantRef } from '../db/db.types';
 import { ErpOptionRow } from './erp-option.types';
 
 @Injectable()
 export class ErpOptionRepository {
   constructor(private readonly pool: PoolManagerService) {}
 
-  async findErpOption(database: string): Promise<ErpOptionRow | null> {
+  async findErpOption(tenant: TenantRef): Promise<ErpOptionRow | null> {
     const result = await this.pool.query<ErpOptionRow>(
-      database,
+      tenant,
       `SELECT vat_rate, item_amount_decimal, item_qty_decimal, item_price_decimal
          FROM erp_option
         LIMIT 1`,

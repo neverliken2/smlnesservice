@@ -37,6 +37,11 @@ services:
     environment:
       # override บางตัวที่ต้องการ enforce ใน production
       NODE_ENV: production
+    # ---- (Optional) Connection Registry — Model B ----
+    # instance เดียว route หลายลูกค้าตาม provider (ดู connections.json.example)
+    # เปิดใช้: uncomment volumes + ตั้ง CONNECTIONS_FILE=/app/connections.json ใน .env
+    # volumes:
+    #   - ./connections.json:/app/connections.json:ro
     logging:
       driver: json-file
       options:

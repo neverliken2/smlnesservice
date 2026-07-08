@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PoolManagerService } from '../../core/db/pool-manager.service';
+import type { TenantRef } from '../../core/db/db.types';
 
 /**
  * Read-only SQL queries สำหรับ credit-note module
@@ -105,12 +106,12 @@ export class CreditNoteRepository {
   // ──────────────────────────── Customers ────────────────────────────
 
   async searchCustomers(
-    database: string,
+    tenant: TenantRef,
     query: string,
   ): Promise<CustomerRow[]> {
     const like = `%${query}%`;
     const result = await this.pool.query<CustomerRow>(
-      database,
+      tenant,
       `SELECT code, name_1
          FROM ar_customer
         WHERE (code ILIKE $1 OR name_1 ILIKE $1)
@@ -126,7 +127,7 @@ export class CreditNoteRepository {
   // ──────────────────────────── Sales Invoices ────────────────────────────
 
   async listSalesInvoices(
-    database: string,
+    tenant: TenantRef,
     custCode: string | undefined,
     query: string | undefined,
     limit: number,
@@ -158,7 +159,7 @@ export class CreditNoteRepository {
     const offsetIdx = params.length;
 
     const result = await this.pool.query<SalesInvoiceRow>(
-      database,
+      tenant,
       `SELECT t.doc_no, t.doc_date, t.cust_code,
               COALESCE(c.name_1, '') AS cust_name,
               t.total_amount, t.vat_type, t.vat_rate, t.discount_word, t.inquiry_type,
@@ -179,7 +180,7 @@ export class CreditNoteRepository {
    * — ใช้ CTE เดียวกับเดิมแต่ scope เฉพาะ doc_no ที่ส่งมา → เร็ว
    */
   async getFullyUsedStatus(
-    database: string,
+    tenant: TenantRef,
     docNos: string[],
   ): Promise<{ doc_no: string; is_fully_used: boolean }[]> {
     if (docNos.length === 0) return [];
@@ -187,7 +188,7 @@ export class CreditNoteRepository {
       doc_no: string;
       is_fully_used: boolean;
     }>(
-      database,
+      tenant,
       `WITH inv_lines AS (
          SELECT d.doc_no, d.line_number, d.item_code,
                 d.qty * NULLIF(d.stand_value, 0) / NULLIF(d.divide_value, 0) AS qty_base
@@ -222,11 +223,11 @@ export class CreditNoteRepository {
   // ──────────────────────────── Invoice Detail ────────────────────────────
 
   async findInvoiceHeader(
-    database: string,
+    tenant: TenantRef,
     docNo: string,
   ): Promise<InvoiceHeaderRow | null> {
     const result = await this.pool.query<InvoiceHeaderRow>(
-      database,
+      tenant,
       `SELECT doc_no, doc_date, cust_code, total_amount,
               vat_type, vat_rate, discount_word, inquiry_type
          FROM ic_trans
@@ -250,11 +251,11 @@ export class CreditNoteRepository {
    *           last_status=0, inquiry_type NOT IN (2,3) (ไม่นับ "ลดหนี้ไม่กระทบสต๊อก")
    */
   async findInvoiceLines(
-    database: string,
+    tenant: TenantRef,
     docNo: string,
   ): Promise<InvoiceLineRow[]> {
     const result = await this.pool.query<InvoiceLineRow>(
-      database,
+      tenant,
       `SELECT d.line_number, d.item_code, d.item_name, d.unit_code,
               d.qty,
               GREATEST(0, (
@@ -289,11 +290,11 @@ export class CreditNoteRepository {
   // ──────────────────────────── Doc Format ────────────────────────────
 
   async findDocFormat(
-    database: string,
+    tenant: TenantRef,
     code: string,
   ): Promise<DocFormatRow | null> {
     const result = await this.pool.query<DocFormatRow>(
-      database,
+      tenant,
       `SELECT format FROM erp_doc_format WHERE code = $1 LIMIT 1`,
       [code],
       { timeout: 5_000 },
@@ -302,12 +303,12 @@ export class CreditNoteRepository {
   }
 
   async findLastDocNo(
-    database: string,
+    tenant: TenantRef,
     formatCode: string,
     pgPattern: string,
   ): Promise<LastDocNoRow | null> {
     const result = await this.pool.query<LastDocNoRow>(
-      database,
+      tenant,
       `SELECT doc_no
          FROM ic_trans
         WHERE trans_flag = $1
@@ -324,7 +325,7 @@ export class CreditNoteRepository {
   // ──────────────────────────── Web Coupons ────────────────────────────
 
   async listWebCoupons(
-    database: string,
+    tenant: TenantRef,
     appCreatorCode: string,
     options: {
       limit: number;
@@ -381,7 +382,7 @@ export class CreditNoteRepository {
        ORDER BY t.doc_date DESC, t.doc_no DESC
        LIMIT $2
     `;
-    const result = await this.pool.query<CouponListRow>(database, sql, params, {
+    const result = await this.pool.query<CouponListRow>(tenant, sql, params, {
       timeout: 15_000,
     });
     return result.rows;
@@ -390,12 +391,12 @@ export class CreditNoteRepository {
   // ──────────────────────────── Reports ────────────────────────────
 
   async getCnPriceDiff(
-    database: string,
+    tenant: TenantRef,
     fromDate: string,
     toDate: string,
   ): Promise<PriceDiffRawRow[]> {
     const result = await this.pool.query<PriceDiffRawRow>(
-      database,
+      tenant,
       `SELECT
          cn.doc_no AS cn_doc_no,
          cn.doc_date AS cn_date,

@@ -17,6 +17,8 @@ pnpm-debug.log*
 # ===== Environment / secrets =====
 .env
 .env.local
+# connection registry จริง (มี PG credentials) — track เฉพาะ .example
+connections.json
 .env.*.local
 .env.development
 .env.production

@@ -16,6 +16,22 @@
 - smlnesservice **ไม่ host PG เอง** — connect ออกไปที่ PG ของลูกค้า
 - Client (เช่น NextStep CN Coupon) join docker network เดียวกัน → คุยผ่าน `http://smlnesservice:3000`
 
+### Model B — Multi-Connection (v0.5.0+)
+
+Instance เดียว (เช่นบน server บริษัท) route ไป PG หลายลูกค้าตาม `provider` ที่ user login:
+
+```
+[Support login provider=next]  ──> [smlnesservice บน server บริษัท] ──> PG บริษัท (env DB_HOST)
+[Support login provider=kungg] ──>        (instance เดียว)          ──SSL──> PG ลูกค้า kungg (online)
+```
+
+- ตั้ง env `CONNECTIONS_FILE=/app/connections.json` + mount ไฟล์ (ดู `connections.json.example`)
+- provider ที่**ไม่อยู่ในไฟล์** fallback ไป `DB_HOST` env เดิม — config Model A เดิมใช้ต่อได้ไม่ต้องแก้
+- แก้ไฟล์แล้ว **restart container** (hot reload มาใน Phase 2)
+- Checklist ต่อลูกค้า online: whitelist เฉพาะ IP server เรา (ห้ามเปิด 5432 สาธารณะ) +
+  PG user แยกไม่ใช่ superuser + `ssl: true` + เช็ค provider ไม่ชนกับที่มีอยู่
+- รายละเอียด/เหตุผลการออกแบบ: `docs/multi-connection-plan.md`
+
 ## Prerequisites
 
 - ✅ Docker + Docker Compose v2 ติดตั้งบน server ลูกค้า

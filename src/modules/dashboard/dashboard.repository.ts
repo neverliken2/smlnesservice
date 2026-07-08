@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PoolManagerService } from '../../core/db/pool-manager.service';
+import type { TenantRef } from '../../core/db/db.types';
 import type {
   StockBalanceQuery,
   StockBalanceRow,
@@ -120,7 +121,7 @@ export class DashboardRepository {
    * ไม่นับ item_type 3, 5
    */
   async getSalesAggregate(
-    database: string,
+    tenant: TenantRef,
     transFlag: 44 | 46 | 48,
     fromDate: string,
     toDate: string,
@@ -155,7 +156,7 @@ export class DashboardRepository {
     `;
 
     const result = await this.pool.query<SalesAggregateRow>(
-      database,
+      tenant,
       sql,
       params,
       { isReport: true },
@@ -174,7 +175,7 @@ export class DashboardRepository {
    * Business logic (avg_cost, balance_amount) อยู่ใน service
    */
   async getStockBalance(
-    database: string,
+    tenant: TenantRef,
     q: StockBalanceQuery,
   ): Promise<
     Omit<
@@ -310,7 +311,7 @@ export class DashboardRepository {
         StockBalanceRow,
         'avg_cost_in' | 'avg_cost_out' | 'avg_cost' | 'balance_amount'
       >
-    >(database, sql, params, { isReport: true });
+    >(tenant, sql, params, { isReport: true });
 
     return result.rows;
   }
@@ -318,7 +319,7 @@ export class DashboardRepository {
   // ──────────────────────────── Product Transactions ────────────────────────────
 
   async getLatestPurchases(
-    database: string,
+    tenant: TenantRef,
     productCode: string,
   ): Promise<LatestPurchase[]> {
     // Schema note (verified 2026-06-19 บน DB ใหม่ 10.121.20.83):
@@ -352,7 +353,7 @@ export class DashboardRepository {
     `;
 
     const result = await this.pool.query<LatestPurchase>(
-      database,
+      tenant,
       sql,
       [productCode],
       { isReport: true },
@@ -361,7 +362,7 @@ export class DashboardRepository {
   }
 
   async getLatestSales(
-    database: string,
+    tenant: TenantRef,
     productCode: string,
   ): Promise<LatestSale[]> {
     const sql = `
@@ -390,7 +391,7 @@ export class DashboardRepository {
     `;
 
     const result = await this.pool.query<LatestSale>(
-      database,
+      tenant,
       sql,
       [productCode],
       { isReport: true },
@@ -405,7 +406,7 @@ export class DashboardRepository {
    * Service จะคำนวณ running_balance, running_amount, trans_type ทีหลัง
    */
   async getStockMovementRows(
-    database: string,
+    tenant: TenantRef,
     productCode: string,
     fromDate?: string,
     toDate?: string,
@@ -470,7 +471,7 @@ export class DashboardRepository {
     `;
 
     const result = await this.pool.query<StockMovementDbRow>(
-      database,
+      tenant,
       sql,
       params,
       { isReport: true },
@@ -482,7 +483,7 @@ export class DashboardRepository {
    * Beginning balance ก่อน fromDate — รวม qty_in - qty_out ทั้งหมดก่อนช่วง
    */
   async getStockMovementBegin(
-    database: string,
+    tenant: TenantRef,
     productCode: string,
     fromDate: string,
   ): Promise<StockMovementBeginRow> {
@@ -530,7 +531,7 @@ export class DashboardRepository {
     `;
 
     const result = await this.pool.query<StockMovementBeginRow>(
-      database,
+      tenant,
       sql,
       [productCode, fromDate],
       { isReport: true },
@@ -550,7 +551,7 @@ export class DashboardRepository {
    * Source: nextstep_dashboard reorder-point/route.ts (port 1:1)
    */
   async getReorderPoints(
-    database: string,
+    tenant: TenantRef,
     q: ReorderPointQuery,
   ): Promise<ReorderPointRow[]> {
     // Date used as $1/$2 ใน subquery — ห้ามเป็น empty string (PG cast error)
@@ -637,12 +638,9 @@ export class DashboardRepository {
       ORDER BY ic_code
     `;
 
-    const result = await this.pool.query<ReorderPointRow>(
-      database,
-      sql,
-      params,
-      { isReport: true },
-    );
+    const result = await this.pool.query<ReorderPointRow>(tenant, sql, params, {
+      isReport: true,
+    });
     return result.rows;
   }
 
@@ -655,7 +653,7 @@ export class DashboardRepository {
    * Build base query แล้วใช้ซ้ำ 3 ครั้ง (count, paginated rows, totals)
    */
   async getProfitProducts(
-    database: string,
+    tenant: TenantRef,
     q: ProfitProductQuery,
   ): Promise<{
     rows: ProfitProductRow[];
@@ -811,7 +809,7 @@ export class DashboardRepository {
 
     const countSql = `SELECT COUNT(*) AS total FROM (${baseQuery}) AS c`;
     const countRes = await this.pool.query<{ total: string }>(
-      database,
+      tenant,
       countSql,
       params,
       { isReport: true },
@@ -822,7 +820,7 @@ export class DashboardRepository {
     const paginatedSql = `${baseQuery} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     const paginatedParams = [...params, q.pageSize, offset];
     const rowsRes = await this.pool.query<ProfitProductRow>(
-      database,
+      tenant,
       paginatedSql,
       paginatedParams,
       { isReport: true },
@@ -842,7 +840,7 @@ export class DashboardRepository {
       FROM (${baseQuery}) AS t
     `;
     const totalsRes = await this.pool.query<ProfitProductTotals>(
-      database,
+      tenant,
       totalsSql,
       params,
       { isReport: true },
@@ -1007,7 +1005,7 @@ export class DashboardRepository {
   }
 
   async getBankOpeningBalances(
-    database: string,
+    tenant: TenantRef,
     dateStart: string,
     bankCode?: string,
     bookNo?: string,
@@ -1038,14 +1036,14 @@ export class DashboardRepository {
       GROUP BY book_no
     `;
 
-    const result = await this.pool.query<BankBalance>(database, sql, params, {
+    const result = await this.pool.query<BankBalance>(tenant, sql, params, {
       isReport: true,
     });
     return result.rows;
   }
 
   async getBankTransactions(
-    database: string,
+    tenant: TenantRef,
     fromDate: string,
     toDate: string,
     bankCode?: string,
@@ -1082,18 +1080,15 @@ export class DashboardRepository {
       ORDER BY book_no, doc_date, doc_time, doc_sort
     `;
 
-    const result = await this.pool.query<BankTransaction>(
-      database,
-      sql,
-      params,
-      { isReport: true },
-    );
+    const result = await this.pool.query<BankTransaction>(tenant, sql, params, {
+      isReport: true,
+    });
     return result.rows;
   }
 
   // ──────────────────────────── Bank Books / Bank / Branches ────────────────────────────
 
-  async getBankBooks(database: string): Promise<BankBookRawRow[]> {
+  async getBankBooks(tenant: TenantRef): Promise<BankBookRawRow[]> {
     const sql = `
       SELECT
         code,
@@ -1104,14 +1099,14 @@ export class DashboardRepository {
       FROM erp_pass_book
       ORDER BY code
     `;
-    const result = await this.pool.query<BankBookRawRow>(database, sql, [], {
+    const result = await this.pool.query<BankBookRawRow>(tenant, sql, [], {
       isReport: true,
     });
     return result.rows;
   }
 
   async getBanksByCodes(
-    database: string,
+    tenant: TenantRef,
     codes: string[],
   ): Promise<BankRefRow[]> {
     if (codes.length === 0) return [];
@@ -1122,19 +1117,19 @@ export class DashboardRepository {
       WHERE code IN (${placeholders})
       ORDER BY code
     `;
-    const result = await this.pool.query<BankRefRow>(database, sql, codes, {
+    const result = await this.pool.query<BankRefRow>(tenant, sql, codes, {
       isReport: true,
     });
     return result.rows;
   }
 
-  async getBankBranches(database: string): Promise<BankBranchRawRow[]> {
+  async getBankBranches(tenant: TenantRef): Promise<BankBranchRawRow[]> {
     const sql = `
       SELECT code, COALESCE(name_1, code) AS name, COALESCE(bank_code, '') AS bank_code
       FROM erp_bank_branch
       ORDER BY bank_code, code
     `;
-    const result = await this.pool.query<BankBranchRawRow>(database, sql, [], {
+    const result = await this.pool.query<BankBranchRawRow>(tenant, sql, [], {
       isReport: true,
     });
     return result.rows;
@@ -1147,7 +1142,7 @@ export class DashboardRepository {
    * Source SQL: nextstep_dashboard ar-movement/route.ts (port + parameterize customerCodes)
    */
   async getArMovement(
-    database: string,
+    tenant: TenantRef,
     dateFrom: string,
     dateTo: string,
     customerCodes?: string,
@@ -1278,7 +1273,7 @@ export class DashboardRepository {
 
     const result = await this.pool.query<
       Omit<ArMovementRow, 'trans_type_name'>
-    >(database, sql, params, { isReport: true });
+    >(tenant, sql, params, { isReport: true });
     return result.rows;
   }
 
@@ -1290,7 +1285,7 @@ export class DashboardRepository {
    * (ใช้ร่วมกัน — share single repo method)
    */
   async getArOpenInvoices(
-    database: string,
+    tenant: TenantRef,
     asOfDate: string,
   ): Promise<ArOpenInvoiceRow[]> {
     const sql = `
@@ -1376,7 +1371,7 @@ export class DashboardRepository {
     `;
 
     const result = await this.pool.query<ArOpenInvoiceRow>(
-      database,
+      tenant,
       sql,
       [asOfDate],
       { isReport: true },
@@ -1393,7 +1388,7 @@ export class DashboardRepository {
    * (source code Dashboard ใช้ vend_code ที่ไม่มีในจริง — verify ผ่าน MCP แล้ว)
    */
   async getApMovement(
-    database: string,
+    tenant: TenantRef,
     dateFrom: string,
     dateTo: string,
     supplierCodes?: string,
@@ -1506,7 +1501,7 @@ export class DashboardRepository {
 
     const result = await this.pool.query<
       Omit<ApMovementRow, 'trans_type_name'>
-    >(database, sql, params, { isReport: true });
+    >(tenant, sql, params, { isReport: true });
     return result.rows;
   }
 
@@ -1516,7 +1511,7 @@ export class DashboardRepository {
    * เอกสาร AP ที่ยังเปิดอยู่ ณ asOfDate — ใช้ร่วม overdue + aging
    */
   async getApOpenInvoices(
-    database: string,
+    tenant: TenantRef,
     asOfDate: string,
   ): Promise<ApOpenInvoiceRow[]> {
     const sql = `
@@ -1602,7 +1597,7 @@ export class DashboardRepository {
     `;
 
     const result = await this.pool.query<ApOpenInvoiceRow>(
-      database,
+      tenant,
       sql,
       [asOfDate],
       { isReport: true },
@@ -1613,7 +1608,7 @@ export class DashboardRepository {
   // ──────────────────────────── Daily Sales Chart ────────────────────────────
 
   async getDailySalesChart(
-    database: string,
+    tenant: TenantRef,
     startDate: string,
     endDate: string,
     groupBy: 'daily' | 'monthly',
@@ -1641,7 +1636,7 @@ export class DashboardRepository {
     `;
 
     const res = await this.pool.query<DailySalesAggregateRow>(
-      database,
+      tenant,
       sql,
       [startDate, endDate],
       { isReport: true },

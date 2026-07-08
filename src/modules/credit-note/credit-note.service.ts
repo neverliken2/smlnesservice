@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PoolManagerService } from '../../core/db/pool-manager.service';
+import type { TenantRef } from '../../core/db/db.types';
 import { ErrorCode } from '../../core/error/error-codes';
 import { CreditNoteRepository } from './credit-note.repository';
 import {
@@ -55,18 +56,18 @@ export class CreditNoteService {
   // ──────────────────────────── 1. Customers ────────────────────────────
 
   async searchCustomers(
-    database: string,
+    tenant: TenantRef,
     query: string,
   ): Promise<CustomerOption[]> {
     const q = (query || '').trim().slice(0, 50);
-    const rows = await this.repo.searchCustomers(database, q);
+    const rows = await this.repo.searchCustomers(tenant, q);
     return rows.map((r) => ({ code: r.code, name: r.name_1 || '' }));
   }
 
   // ──────────────────────────── 2. Sales Invoices ────────────────────────────
 
   async listSalesInvoices(
-    database: string,
+    tenant: TenantRef,
     custCode: string | undefined,
     query: string | undefined,
     limit: number | undefined,
@@ -77,7 +78,7 @@ export class CreditNoteService {
     const safeLimit = Math.min(Math.max(limit ?? 30, 1), 100);
     const safeOffset = Math.max(offset ?? 0, 0);
     const rows = await this.repo.listSalesInvoices(
-      database,
+      tenant,
       code || undefined,
       q || undefined,
       safeLimit,
@@ -103,7 +104,7 @@ export class CreditNoteService {
    * Frontend เรียก endpoint นี้ → render สีเทาทีหลัง (lazy load)
    */
   async getFullyUsedStatus(
-    database: string,
+    tenant: TenantRef,
     docNos: string[],
   ): Promise<Record<string, boolean>> {
     // กัน abuse — limit ที่ 200 docNos/call
@@ -111,7 +112,7 @@ export class CreditNoteService {
       .slice(0, 200)
       .filter((d) => typeof d === 'string' && d.length > 0);
     if (safeDocNos.length === 0) return {};
-    const rows = await this.repo.getFullyUsedStatus(database, safeDocNos);
+    const rows = await this.repo.getFullyUsedStatus(tenant, safeDocNos);
     const map: Record<string, boolean> = {};
     for (const r of rows) {
       map[r.doc_no] = r.is_fully_used === true;
@@ -123,7 +124,7 @@ export class CreditNoteService {
   // ──────────────────────────── 3. Invoice Detail ────────────────────────────
 
   async getInvoiceDetail(
-    database: string,
+    tenant: TenantRef,
     docNo: string,
   ): Promise<InvoiceDetailResponse> {
     const doc = (docNo || '').trim();
@@ -136,8 +137,8 @@ export class CreditNoteService {
 
     // Header + detail rune parallel (independent queries — ประหยัด 1 round-trip)
     const [header, lines] = await Promise.all([
-      this.repo.findInvoiceHeader(database, doc),
-      this.repo.findInvoiceLines(database, doc),
+      this.repo.findInvoiceHeader(tenant, doc),
+      this.repo.findInvoiceLines(tenant, doc),
     ]);
 
     if (!header) {
@@ -187,7 +188,7 @@ export class CreditNoteService {
   // ──────────────────────────── 4. Web Coupons ────────────────────────────
 
   async listWebCoupons(
-    database: string,
+    tenant: TenantRef,
     options: {
       limit?: number;
       query?: string;
@@ -205,7 +206,7 @@ export class CreditNoteService {
     const toDate =
       options.toDate && datePattern.test(options.toDate) ? options.toDate : '';
 
-    const rows = await this.repo.listWebCoupons(database, APP_CREATOR_CODE, {
+    const rows = await this.repo.listWebCoupons(tenant, APP_CREATOR_CODE, {
       limit,
       query: rawQuery,
       fromDate,
@@ -231,11 +232,11 @@ export class CreditNoteService {
   // ──────────────────────────── 5. Reports ────────────────────────────
 
   async getCnPriceDiffReport(
-    database: string,
+    tenant: TenantRef,
     fromDate: string,
     toDate: string,
   ): Promise<PriceDiffReportResponse> {
-    const rows = await this.repo.getCnPriceDiff(database, fromDate, toDate);
+    const rows = await this.repo.getCnPriceDiff(tenant, fromDate, toDate);
     const mapped: PriceDiffRow[] = rows.map((r) => ({
       cn_doc_no: r.cn_doc_no,
       cn_date: toISODate(r.cn_date),
@@ -282,7 +283,7 @@ export class CreditNoteService {
    *  13. INSERT ap_ar_trans_detail (DELETE first)
    */
   async saveCreditNote(
-    database: string,
+    tenant: TenantRef,
     payload: CreditNotePayloadDto,
   ): Promise<SaveCreditNoteResult> {
     // Filter lines ที่ qty_cn > 0 + validate
@@ -324,7 +325,7 @@ export class CreditNoteService {
       now.getMinutes(),
     ).padStart(2, '0')}`;
 
-    return this.pool.transaction(database, async (client) => {
+    return this.pool.transaction(tenant, async (client) => {
       // 1. duplicate check
       const dup = await client.query(
         `SELECT doc_no FROM ic_trans WHERE trans_flag = $1 AND doc_no = $2 LIMIT 1`,

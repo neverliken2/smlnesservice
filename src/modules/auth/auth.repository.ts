@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PoolManagerService } from '../../core/db/pool-manager.service';
+import type { TenantRef } from '../../core/db/db.types';
 
 export interface UserRow {
   user_code: string;
@@ -25,9 +26,8 @@ export interface DatabaseRow {
 export class AuthRepository {
   constructor(private readonly pool: PoolManagerService) {}
 
-  private authDbName(provider: string): string {
-    const prefix = process.env.DB_NAME_PREFIX ?? 'smlerpmain';
-    return `${prefix}${provider.toLowerCase()}`;
+  private authTenant(provider: string): TenantRef {
+    return { provider, database: this.pool.authDbName(provider) };
   }
 
   async findUserByCode(
@@ -37,7 +37,7 @@ export class AuthRepository {
     // ไม่กรอง active_status — ตาม pattern ของ smlerp22_new (_myFrameWork._checkUserAndPassword)
     // และ NextStep CN Coupon ตัวเก่า; superadmin ใน demo มี active_status=0 ก็ต้อง login ได้
     const result = await this.pool.query<UserRow>(
-      this.authDbName(provider),
+      this.authTenant(provider),
       `SELECT user_code, user_name, user_password, user_level
          FROM sml_user_list
         WHERE UPPER(user_code) = UPPER($1)`,
@@ -55,7 +55,7 @@ export class AuthRepository {
     // หมายเหตุ: ไม่ filter user_or_group_status — ตาม pattern NextStep CN Coupon
     // (ฟิลด์นี้ใน SML ใช้บอก sync state, ไม่ใช่ active flag — 0 = ปกติ)
     const result = await this.pool.query<DatabaseRow>(
-      this.authDbName(provider),
+      this.authTenant(provider),
       `SELECT data_code, data_database_name, data_name
          FROM sml_database_list
         WHERE UPPER(data_group) = UPPER($1)
@@ -77,7 +77,7 @@ export class AuthRepository {
     dataCode: string,
   ): Promise<DatabaseRow | null> {
     const result = await this.pool.query<DatabaseRow>(
-      this.authDbName(provider),
+      this.authTenant(provider),
       `SELECT data_code, data_database_name, data_name
          FROM sml_database_list
         WHERE UPPER(data_code) = UPPER($1)

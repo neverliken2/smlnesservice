@@ -2,9 +2,10 @@
  * Pool Manager Service
  * Ported from NextStep_CN_Coupon/src/lib/db.ts
  *
- * - Caches one Pool per database name (multi-DB ใน 1 instance)
+ * - Caches one Pool per (provider, database) — provider ต่างกันอาจอยู่คนละ PG server
+ *   และอาจมีชื่อ DB ซ้ำกันได้ (เช่น ลูกค้าสองรายมี "demo" ทั้งคู่)
+ * - Connection config (host/creds/ssl) resolve ผ่าน ConnectionRegistryService
  * - safeQuery + transaction with timeout protection
- * - SSL support สำหรับ PG remote (ผ่าน network สาธารณะ)
  * - Auto cleanup ผ่าน NestJS lifecycle (onModuleDestroy)
  */
 
@@ -15,13 +16,22 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { Pool, PoolClient, PoolConfig } from 'pg';
-import { QueryOptions, QueryResult, SqlParam, TIMEOUTS } from './db.types';
+import {
+  QueryOptions,
+  QueryResult,
+  SqlParam,
+  TenantRef,
+  TIMEOUTS,
+} from './db.types';
 import { QueryTimeoutError } from './db.errors';
+import { ConnectionRegistryService } from './connection-registry.service';
 
 @Injectable()
 export class PoolManagerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PoolManagerService.name);
   private readonly pools = new Map<string, Pool>();
+
+  constructor(private readonly registry: ConnectionRegistryService) {}
 
   onModuleInit() {
     this.logger.log('PoolManagerService ready');
@@ -30,21 +40,24 @@ export class PoolManagerService implements OnModuleInit, OnModuleDestroy {
   // ==================== Pool Management ====================
 
   /**
-   * Get or create a connection pool for a specific database.
-   * Pool ถูก cache ตามชื่อ DB (lowercase) — reuse ไม่สร้างใหม่ทุกครั้ง
+   * Get or create a connection pool for (provider, database).
+   * Pool cache key = `${provider}:${dbName}` — reuse ไม่สร้างใหม่ทุกครั้ง
    */
-  getPool(databaseName: string): Pool {
+  getPool(provider: string, databaseName: string): Pool {
+    const providerKey = provider.toLowerCase();
     const dbName = databaseName.toLowerCase();
-    let pool = this.pools.get(dbName);
+    const poolKey = `${providerKey}:${dbName}`;
+    let pool = this.pools.get(poolKey);
 
     if (!pool) {
+      const conn = this.registry.resolve(providerKey);
       const config: PoolConfig = {
-        host: process.env.DB_HOST,
-        port: parseInt(process.env.DB_PORT ?? '5432', 10),
-        user: process.env.DB_USER,
-        password: process.env.DB_PASSWORD,
+        host: conn.host,
+        port: conn.port,
+        user: conn.user,
+        password: conn.password,
         database: dbName,
-        max: parseInt(process.env.DB_POOL_MAX ?? '20', 10),
+        max: conn.poolMax,
         min: 1,
         idleTimeoutMillis: TIMEOUTS.IDLE,
         connectionTimeoutMillis: TIMEOUTS.CONNECTION,
@@ -52,52 +65,54 @@ export class PoolManagerService implements OnModuleInit, OnModuleDestroy {
         query_timeout: TIMEOUTS.QUERY_DEFAULT,
         keepAlive: true,
         keepAliveInitialDelayMillis: 10_000,
-        ssl: this.buildSslOption(),
+        ssl: conn.ssl
+          ? { rejectUnauthorized: conn.sslRejectUnauthorized }
+          : false,
       };
 
       pool = new Pool(config);
 
       pool.on('error', (err) => {
-        this.logger.error(`[Pool Error] ${dbName}: ${err.message}`);
+        this.logger.error(`[Pool Error] ${poolKey}: ${err.message}`);
       });
       pool.on('connect', () => {
-        this.logger.debug(`New connection: ${dbName}`);
+        this.logger.debug(`New connection: ${poolKey}`);
       });
 
-      this.pools.set(dbName, pool);
-      this.logger.log(`Created pool: ${dbName}`);
+      this.pools.set(poolKey, pool);
+      this.logger.log(
+        `Created pool: ${poolKey} → ${conn.host} (${conn.source})`,
+      );
     }
 
     return pool;
   }
 
   /**
-   * Get pool for auth database (smlerpmain + provider)
+   * Get pool for auth database (dbNamePrefix + provider เช่น smlerpmaindemo)
    */
   getAuthPool(provider: string): Pool {
-    const prefix = process.env.DB_NAME_PREFIX ?? 'smlerpmain';
-    return this.getPool(`${prefix}${provider.toLowerCase()}`);
+    return this.getPool(provider, this.registry.authDbName(provider));
   }
 
-  private buildSslOption(): PoolConfig['ssl'] {
-    if (process.env.DB_SSL !== 'true') return false;
-    return {
-      rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false',
-    };
+  /** ชื่อ auth DB ของ provider — delegate ไป registry (prefix เป็น per-connection) */
+  authDbName(provider: string): string {
+    return this.registry.authDbName(provider);
   }
 
   // ==================== Safe Query ====================
 
   /**
    * Execute a query with timeout protection
+   * `tenant` รับ TenantContext ตรงๆ ได้ (มี provider + database ครบ)
    */
   async query<T = Record<string, unknown>>(
-    databaseName: string,
+    tenant: TenantRef,
     sql: string,
     params?: SqlParam[],
     options: QueryOptions = {},
   ): Promise<QueryResult<T>> {
-    const pool = this.getPool(databaseName);
+    const pool = this.getPool(tenant.provider, tenant.database);
 
     let timeout = options.timeout ?? TIMEOUTS.QUERY_DEFAULT;
     if (options.isReport && !options.timeout) {
@@ -151,11 +166,11 @@ export class PoolManagerService implements OnModuleInit, OnModuleDestroy {
    * เพื่อหลีกเลี่ยง gotcha ตาม CLAUDE.md ข้อ 5
    */
   async transaction<T>(
-    databaseName: string,
+    tenant: TenantRef,
     callback: (client: PoolClient) => Promise<T>,
     timeout: number = TIMEOUTS.QUERY_REPORT,
   ): Promise<T> {
-    const pool = this.getPool(databaseName);
+    const pool = this.getPool(tenant.provider, tenant.database);
     const client = await pool.connect();
 
     try {
@@ -187,7 +202,7 @@ export class PoolManagerService implements OnModuleInit, OnModuleDestroy {
 
   // ==================== Health Check ====================
 
-  async checkHealth(databaseName: string): Promise<{
+  async checkHealth(tenant: TenantRef): Promise<{
     healthy: boolean;
     latencyMs: number;
     poolSize?: number;
@@ -195,8 +210,8 @@ export class PoolManagerService implements OnModuleInit, OnModuleDestroy {
   }> {
     const start = Date.now();
     try {
-      const pool = this.getPool(databaseName);
-      const result = await this.query(databaseName, 'SELECT 1 as ok', [], {
+      const pool = this.getPool(tenant.provider, tenant.database);
+      const result = await this.query(tenant, 'SELECT 1 as ok', [], {
         timeout: 5_000,
       });
       return {

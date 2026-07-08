@@ -36,6 +36,6 @@ export class ErpOptionController {
   async getErpOption(
     @Tenant() tenant: TenantContext,
   ): Promise<ErpOptionResponse> {
-    return this.svc.getErpOption(tenant.database);
+    return this.svc.getErpOption(tenant);
   }
 }

@@ -1,0 +1,27 @@
+{
+  "_comment": [
+    "connections.json — Connection Registry (Model B: instance เดียว route หลายลูกค้า)",
+    "วิธีใช้: cp connections.json.example connections.json แล้วตั้ง env CONNECTIONS_FILE=/app/connections.json",
+    "         (docker: mount ไฟล์เข้า container — ดู docker-compose.example.yml)",
+    "กติกา:",
+    "  - 1 entry = 1 provider (ตัวเดียวกับที่ user กรอกตอน login) — ห้ามซ้ำ",
+    "  - provider ที่ไม่อยู่ในไฟล์ → fallback ไป DB_HOST/DB_USER/... ใน env (พฤติกรรมเดิม)",
+    "  - แก้ไฟล์แล้วต้อง restart container (hot reload มาใน Phase 2)",
+    "  - field optional: port(5432), ssl(false), sslRejectUnauthorized(true), poolMax(20), dbNamePrefix(smlerpmain)",
+    "  - ลูกค้า online → ssl: true เสมอ + ให้ลูกค้า whitelist เฉพาะ IP server เรา",
+    "  - ⚠️ ไฟล์จริงมี password — ห้าม commit (gitignore ไว้แล้ว) + จำกัดสิทธิ์การอ่านไฟล์"
+  ],
+  "connections": [
+    {
+      "provider": "kungg",
+      "host": "customer-pg.example.com",
+      "port": 5432,
+      "user": "smlnes_svc",
+      "password": "change-me",
+      "ssl": true,
+      "sslRejectUnauthorized": true,
+      "poolMax": 10,
+      "dbNamePrefix": "smlerpmain"
+    }
+  ]
+}

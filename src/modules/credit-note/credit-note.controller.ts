@@ -71,11 +71,7 @@ export class CreditNoteController {
     @Query() query: unknown,
   ): Promise<NextDocNoResponse> {
     const parsed = this.parse(NextDocNoQuerySchema, query);
-    return this.docNo.getNextDocNo(
-      tenant.database,
-      parsed.formatCode,
-      parsed.docDate,
-    );
+    return this.docNo.getNextDocNo(tenant, parsed.formatCode, parsed.docDate);
   }
 
   // ──────────────────────────── customers ────────────────────────────
@@ -91,7 +87,7 @@ export class CreditNoteController {
     @Query() query: unknown,
   ): Promise<CustomerOption[]> {
     const parsed = this.parse(CustomerSearchQuerySchema, query);
-    return this.creditNote.searchCustomers(tenant.database, parsed.query ?? '');
+    return this.creditNote.searchCustomers(tenant, parsed.query ?? '');
   }
 
   // ──────────────────────────── sales invoices ────────────────────────────
@@ -124,7 +120,7 @@ export class CreditNoteController {
   ): Promise<SalesInvoiceOption[]> {
     const parsed = this.parse(ListSalesInvoicesQuerySchema, query);
     return this.creditNote.listSalesInvoices(
-      tenant.database,
+      tenant,
       parsed.custCode,
       parsed.query,
       parsed.limit,
@@ -153,7 +149,7 @@ export class CreditNoteController {
     @Body() body: unknown,
   ): Promise<FullyUsedStatusResponse> {
     const parsed = this.parse(FullyUsedStatusBodySchema, body);
-    return this.creditNote.getFullyUsedStatus(tenant.database, parsed.docNos);
+    return this.creditNote.getFullyUsedStatus(tenant, parsed.docNos);
   }
 
   @Get('sales-invoices/:docNo')
@@ -167,7 +163,7 @@ export class CreditNoteController {
     @Tenant() tenant: TenantContext,
     @Param('docNo') docNo: string,
   ): Promise<InvoiceDetailResponse> {
-    return this.creditNote.getInvoiceDetail(tenant.database, docNo);
+    return this.creditNote.getInvoiceDetail(tenant, docNo);
   }
 
   // ──────────────────────────── web coupons ────────────────────────────
@@ -187,7 +183,7 @@ export class CreditNoteController {
     @Query() query: unknown,
   ): Promise<CouponListItem[]> {
     const parsed = this.parse(ListWebCouponsQuerySchema, query);
-    return this.creditNote.listWebCoupons(tenant.database, parsed);
+    return this.creditNote.listWebCoupons(tenant, parsed);
   }
 
   // ──────────────────────────── reports ────────────────────────────
@@ -205,7 +201,7 @@ export class CreditNoteController {
   ): Promise<PriceDiffReportResponse> {
     const parsed = this.parse(PriceDiffQuerySchema, query);
     return this.creditNote.getCnPriceDiffReport(
-      tenant.database,
+      tenant,
       parsed.fromDate,
       parsed.toDate,
     );
@@ -266,7 +262,7 @@ export class CreditNoteController {
     @Body() body: unknown,
   ): Promise<SaveCreditNoteResult> {
     const parsed = this.parse(CreditNotePayloadSchema, body);
-    return this.creditNote.saveCreditNote(tenant.database, parsed);
+    return this.creditNote.saveCreditNote(tenant, parsed);
   }
 
   // ──────────────────────────── helper ────────────────────────────

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import { PoolManagerService } from '../../core/db/pool-manager.service';
+import type { TenantRef } from '../../core/db/db.types';
 import {
   APP_CREATOR_CODE,
   IA_FORMAT_CODE,
@@ -79,7 +80,7 @@ export class StockAdjustRepository {
    * - query มี → substring match บน code และ name_1
    */
   async searchItems(
-    database: string,
+    tenant: TenantRef,
     query: string,
     offset: number,
     limit: number,
@@ -96,7 +97,7 @@ export class StockAdjustRepository {
     const offsetIdx = params.length;
 
     const result = await this.pool.query<ItemRow>(
-      database,
+      tenant,
       `SELECT code, name_1, unit_standard, average_cost
          FROM ic_inventory
          ${whereClause}
@@ -109,11 +110,11 @@ export class StockAdjustRepository {
   }
 
   async findItemByCode(
-    database: string,
+    tenant: TenantRef,
     code: string,
   ): Promise<ItemRow | null> {
     const result = await this.pool.query<ItemRow>(
-      database,
+      tenant,
       `SELECT code, name_1, unit_standard, average_cost
          FROM ic_inventory
         WHERE code = $1
@@ -130,11 +131,11 @@ export class StockAdjustRepository {
    * - order by row_order, line_number ตาม SMLERP convention
    */
   async findUnitsByItemCode(
-    database: string,
+    tenant: TenantRef,
     code: string,
   ): Promise<UnitRow[]> {
     const result = await this.pool.query<UnitRow>(
-      database,
+      tenant,
       `SELECT code, stand_value, divide_value, ratio
          FROM ic_unit_use
         WHERE ic_code = $1 AND COALESCE(status, 1) = 1
@@ -148,12 +149,12 @@ export class StockAdjustRepository {
   // ──────────────────────────── Warehouses / Shelves ────────────────────────────
 
   async searchWarehouses(
-    database: string,
+    tenant: TenantRef,
     query: string,
   ): Promise<WarehouseRow[]> {
     const like = `%${query}%`;
     const result = await this.pool.query<WarehouseRow>(
-      database,
+      tenant,
       `SELECT code, name_1
          FROM ic_warehouse
         WHERE code ILIKE $1 OR name_1 ILIKE $1
@@ -166,7 +167,7 @@ export class StockAdjustRepository {
   }
 
   async searchShelves(
-    database: string,
+    tenant: TenantRef,
     query: string,
     whCode: string,
   ): Promise<ShelfRow[]> {
@@ -179,7 +180,7 @@ export class StockAdjustRepository {
     }
 
     const result = await this.pool.query<ShelfRow>(
-      database,
+      tenant,
       `SELECT code, name_1, whcode
          FROM ic_shelf
         WHERE (code ILIKE $1 OR name_1 ILIKE $1)${whClause}
@@ -204,11 +205,11 @@ export class StockAdjustRepository {
    * FE filter stock_qty > 0 ทิ้งอยู่แล้ว → shelf ที่ยกออกจนหมดจะไม่โผล่บน UI
    */
   async findItemLocations(
-    database: string,
+    tenant: TenantRef,
     itemCode: string,
   ): Promise<ItemLocationDbRow[]> {
     const result = await this.pool.query<ItemLocationDbRow>(
-      database,
+      tenant,
       `SELECT DISTINCT
               d.wh_code,
               w.name_1 AS wh_name,
@@ -236,13 +237,13 @@ export class StockAdjustRepository {
    * TO_CHAR(doc_date, 'YYYY-MM-DD') → กัน timezone bug
    */
   async findPurchaseHistory(
-    database: string,
+    tenant: TenantRef,
     itemCode: string,
     offset: number,
     limit: number,
   ): Promise<PurchaseHistoryDbRow[]> {
     const result = await this.pool.query<PurchaseHistoryDbRow>(
-      database,
+      tenant,
       `SELECT t.doc_no,
               TO_CHAR(t.doc_date, 'YYYY-MM-DD') AS doc_date,
               t.cust_code,
@@ -282,7 +283,7 @@ export class StockAdjustRepository {
    *   average_cost_end    = average_cost ของ trans active ล่าสุด × unit_ratio
    */
   async getStockAndCost(
-    database: string,
+    tenant: TenantRef,
     itemCode: string,
     whCode: string,
     asOfDate: string,
@@ -396,12 +397,10 @@ FROM t2`;
       ? [itemCode, whCode, asOfDate, shelf]
       : [itemCode, whCode, asOfDate];
 
-    const res = await this.pool.query<StockAndCostRow>(
-      database,
-      sql,
-      params,
-      { timeout: 30_000, isReport: true },
-    );
+    const res = await this.pool.query<StockAndCostRow>(tenant, sql, params, {
+      timeout: 30_000,
+      isReport: true,
+    });
 
     if (res.rows.length === 0) return { stockQty: 0, avgCostEnd: 0 };
     return {
@@ -417,12 +416,12 @@ FROM t2`;
    * ส่ง itemCodes ผ่าน `code = ANY($1::text[])`
    */
   async findItemsByCodes(
-    database: string,
+    tenant: TenantRef,
     itemCodes: string[],
   ): Promise<ItemRow[]> {
     if (itemCodes.length === 0) return [];
     const result = await this.pool.query<ItemRow>(
-      database,
+      tenant,
       `SELECT code, name_1, unit_standard
          FROM ic_inventory
         WHERE code = ANY($1::text[])`,
@@ -436,12 +435,12 @@ FROM t2`;
    * ดึง unit_use ของ items หลาย code — group ตาม ic_code ที่ฝั่ง service
    */
   async findUnitsByItemCodes(
-    database: string,
+    tenant: TenantRef,
     itemCodes: string[],
   ): Promise<Array<UnitRow & { ic_code: string }>> {
     if (itemCodes.length === 0) return [];
     const result = await this.pool.query<UnitRow & { ic_code: string }>(
-      database,
+      tenant,
       `SELECT ic_code, code, stand_value, divide_value, ratio
          FROM ic_unit_use
         WHERE ic_code = ANY($1::text[]) AND COALESCE(status, 1) = 1
@@ -461,10 +460,10 @@ FROM t2`;
    * NOTE: ภายใน callback ใช้ `client.query()` ตรงๆ (ตาม pattern ของ PoolManagerService)
    */
   async runInTransaction<T>(
-    database: string,
+    tenant: TenantRef,
     cb: (client: PoolClient) => Promise<T>,
   ): Promise<T> {
-    return this.pool.transaction(database, cb);
+    return this.pool.transaction(tenant, cb);
   }
 
   /**

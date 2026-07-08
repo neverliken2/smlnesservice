@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DocNoService } from '../../core/doc-no/doc-no.service';
+import type { TenantRef } from '../../core/db/db.types';
 import { ErpOptionService } from '../../core/erp-option/erp-option.service';
 import { ErrorCode } from '../../core/error/error-codes';
 import { IA_FORMAT_CODE, IA_TRANS_FLAG } from './stock-adjust.constants';
@@ -68,7 +69,7 @@ export class StockAdjustService {
   // ──────────────────────────── Items ────────────────────────────
 
   async searchItems(
-    database: string,
+    tenant: TenantRef,
     query: string,
     offset: number,
     limit: number,
@@ -79,7 +80,7 @@ export class StockAdjustService {
 
     // query limit+1 → has_more
     const rows = await this.repo.searchItems(
-      database,
+      tenant,
       q,
       safeOffset,
       safeLimit + 1,
@@ -93,7 +94,7 @@ export class StockAdjustService {
   }
 
   async getItemDefaults(
-    database: string,
+    tenant: TenantRef,
     itemCode: string,
     whCode: string,
     shelfCode: string = '',
@@ -101,12 +102,12 @@ export class StockAdjustService {
     const code = (itemCode || '').trim();
     if (!code) return { item: null, units: [], stock_qty: 0 };
 
-    const itemRow = await this.repo.findItemByCode(database, code);
+    const itemRow = await this.repo.findItemByCode(tenant, code);
     if (!itemRow) return { item: null, units: [], stock_qty: 0 };
 
     const item = this.mapItem(itemRow);
 
-    const unitRows = await this.repo.findUnitsByItemCode(database, code);
+    const unitRows = await this.repo.findUnitsByItemCode(tenant, code);
     const units: UnitOption[] = unitRows.map((u) => this.mapUnit(u));
     // ถ้าไม่มี unit แต่มี unit_standard → push default 1:1:1
     if (units.length === 0 && item.unit_standard) {
@@ -126,7 +127,7 @@ export class StockAdjustService {
     if (wh) {
       const today = new Date().toISOString().slice(0, 10);
       const { stockQty: q, avgCostEnd } = await this.repo.getStockAndCost(
-        database,
+        tenant,
         code,
         wh,
         today,
@@ -142,22 +143,22 @@ export class StockAdjustService {
   // ──────────────────────────── Warehouses / Shelves ────────────────────────────
 
   async searchWarehouses(
-    database: string,
+    tenant: TenantRef,
     query: string,
   ): Promise<WarehouseOption[]> {
     const q = (query || '').trim().slice(0, 50);
-    const rows = await this.repo.searchWarehouses(database, q);
+    const rows = await this.repo.searchWarehouses(tenant, q);
     return rows.map((r) => this.mapWarehouse(r));
   }
 
   async searchShelves(
-    database: string,
+    tenant: TenantRef,
     query: string,
     whCode: string,
   ): Promise<ShelfOption[]> {
     const q = (query || '').trim().slice(0, 50);
     const wh = (whCode || '').trim();
-    const rows = await this.repo.searchShelves(database, q, wh);
+    const rows = await this.repo.searchShelves(tenant, q, wh);
     return rows.map((r) => this.mapShelf(r));
   }
 
@@ -174,21 +175,21 @@ export class StockAdjustService {
    * - FE filter stock_qty > 0 → shelf ที่ยกออกจนหมดจะไม่โผล่บน UI
    */
   async getItemLocations(
-    database: string,
+    tenant: TenantRef,
     itemCode: string,
   ): Promise<GetItemLocationsResponse> {
     const code = (itemCode || '').trim();
     if (!code) return { item: null, units: [], locations: [] };
 
-    const itemRow = await this.repo.findItemByCode(database, code);
+    const itemRow = await this.repo.findItemByCode(tenant, code);
     if (!itemRow) return { item: null, units: [], locations: [] };
 
     const item = this.mapItem(itemRow);
 
     // units (parallel กับ locations กัน sequential RTT)
     const [unitRows, locationRows] = await Promise.all([
-      this.repo.findUnitsByItemCode(database, code),
-      this.repo.findItemLocations(database, code),
+      this.repo.findUnitsByItemCode(tenant, code),
+      this.repo.findItemLocations(tenant, code),
     ]);
 
     const units: UnitOption[] = unitRows.map((u) => this.mapUnit(u));
@@ -221,7 +222,7 @@ export class StockAdjustService {
           const key = `${loc.wh_code}|${loc.shelf_code}`;
           try {
             const r = await this.repo.getStockAndCost(
-              database,
+              tenant,
               code,
               loc.wh_code,
               asOfDate,
@@ -264,7 +265,7 @@ export class StockAdjustService {
   // ──────────────────────────── Purchase History ────────────────────────────
 
   async getPurchaseHistory(
-    database: string,
+    tenant: TenantRef,
     itemCode: string,
     offset: number,
     limit: number,
@@ -276,7 +277,7 @@ export class StockAdjustService {
     const safeOffset = Math.max(0, Math.floor(Number(offset) || 0));
 
     const rows = await this.repo.findPurchaseHistory(
-      database,
+      tenant,
       code,
       safeOffset,
       safeLimit + 1,
@@ -299,7 +300,7 @@ export class StockAdjustService {
    * - Response 200 ทุก case (error per-row, ไม่ throw)
    */
   async validateImport(
-    database: string,
+    tenant: TenantRef,
     body: ValidateImportBody,
   ): Promise<ValidateImportResponse> {
     const { rows, wh_code, shelf_code } = body;
@@ -314,7 +315,7 @@ export class StockAdjustService {
     );
 
     // batch 1: items
-    const itemRows = await this.repo.findItemsByCodes(database, itemCodes);
+    const itemRows = await this.repo.findItemsByCodes(tenant, itemCodes);
     const itemMap = new Map<string, { name: string; unit_standard: string }>();
     for (const r of itemRows) {
       itemMap.set(r.code, {
@@ -324,7 +325,7 @@ export class StockAdjustService {
     }
 
     // batch 2: units (group ตาม ic_code)
-    const unitRows = await this.repo.findUnitsByItemCodes(database, itemCodes);
+    const unitRows = await this.repo.findUnitsByItemCodes(tenant, itemCodes);
     const unitMap = new Map<
       string,
       {
@@ -421,7 +422,7 @@ export class StockAdjustService {
         slice.map(async ({ row, itemCode }) => {
           try {
             const { stockQty, avgCostEnd } = await this.repo.getStockAndCost(
-              database,
+              tenant,
               itemCode,
               wh_code,
               asOfDate,
@@ -461,7 +462,7 @@ export class StockAdjustService {
    *       (port logic inline เพื่อกัน race condition)
    */
   async saveStockAdjust(
-    database: string,
+    tenant: TenantRef,
     body: SaveStockAdjustBody,
   ): Promise<SaveStockAdjustResponse> {
     // กรอง line ที่ sum_amount = 0 ออก (no-op)
@@ -493,105 +494,102 @@ export class StockAdjustService {
 
     const docTime = this.resolveDocTime(body.doc_time);
 
-    const result = await this.repo.runInTransaction(
-      database,
-      async (client) => {
-        // 1. lock + gen doc_no
-        const fmt = await this.repo.lockDocFormat(client, IA_FORMAT_CODE);
-        if (!fmt) {
-          throw new NotFoundException({
-            code: ErrorCode.DOC_FORMAT_NOT_FOUND,
-            message: `ไม่พบ doc_format "${IA_FORMAT_CODE}" ใน erp_doc_format`,
-          });
-        }
-        const format = fmt.format || '';
-        if (!format) {
-          throw new BadRequestException({
-            code: ErrorCode.VALIDATION_ERROR,
-            message: 'format ของ doc_format ว่าง',
-          });
-        }
-
-        const docNoStr = await expandDocNo({
-          format,
-          docDate: body.doc_date,
-          formatCode: IA_FORMAT_CODE,
-          findLast: async (pgPattern) => {
-            const last = await this.repo.findLastDocNoInTx(
-              client,
-              IA_TRANS_FLAG,
-              IA_FORMAT_CODE,
-              pgPattern,
-            );
-            return last?.doc_no;
-          },
+    const result = await this.repo.runInTransaction(tenant, async (client) => {
+      // 1. lock + gen doc_no
+      const fmt = await this.repo.lockDocFormat(client, IA_FORMAT_CODE);
+      if (!fmt) {
+        throw new NotFoundException({
+          code: ErrorCode.DOC_FORMAT_NOT_FOUND,
+          message: `ไม่พบ doc_format "${IA_FORMAT_CODE}" ใน erp_doc_format`,
         });
+      }
+      const format = fmt.format || '';
+      if (!format) {
+        throw new BadRequestException({
+          code: ErrorCode.VALIDATION_ERROR,
+          message: 'format ของ doc_format ว่าง',
+        });
+      }
 
-        // 2. check duplicate
-        const exists = await this.repo.isDocNoExists(
-          client,
-          IA_TRANS_FLAG,
-          docNoStr,
-        );
-        if (exists) {
-          throw new ConflictException({
-            code: ErrorCode.DUPLICATE_DOC_NO,
-            message: `เลขที่เอกสาร ${docNoStr} ซ้ำ — กรุณาลองใหม่`,
-          });
-        }
+      const docNoStr = await expandDocNo({
+        format,
+        docDate: body.doc_date,
+        formatCode: IA_FORMAT_CODE,
+        findLast: async (pgPattern) => {
+          const last = await this.repo.findLastDocNoInTx(
+            client,
+            IA_TRANS_FLAG,
+            IA_FORMAT_CODE,
+            pgPattern,
+          );
+          return last?.doc_no;
+        },
+      });
 
-        // 3. round + compute total
-        type ComputedLine = (typeof validLines)[number] & {
-          sum_amount_rounded: number;
-          wh_code_final: string;
-          shelf_code_final: string;
-        };
-        const computed: ComputedLine[] = validLines.map((l) => ({
-          ...l,
-          wh_code_final: (l.wh_code || body.wh_from) ?? '',
-          shelf_code_final: (l.shelf_code || body.location_from) ?? '',
-          sum_amount_rounded: round5(Number(l.sum_amount)),
-        }));
-        const totalAmount = round2(
-          computed.reduce((s, l) => s + l.sum_amount_rounded, 0),
-        );
+      // 2. check duplicate
+      const exists = await this.repo.isDocNoExists(
+        client,
+        IA_TRANS_FLAG,
+        docNoStr,
+      );
+      if (exists) {
+        throw new ConflictException({
+          code: ErrorCode.DUPLICATE_DOC_NO,
+          message: `เลขที่เอกสาร ${docNoStr} ซ้ำ — กรุณาลองใหม่`,
+        });
+      }
 
-        // 4. INSERT header
-        await this.repo.insertHeader(client, {
+      // 3. round + compute total
+      type ComputedLine = (typeof validLines)[number] & {
+        sum_amount_rounded: number;
+        wh_code_final: string;
+        shelf_code_final: string;
+      };
+      const computed: ComputedLine[] = validLines.map((l) => ({
+        ...l,
+        wh_code_final: (l.wh_code || body.wh_from) ?? '',
+        shelf_code_final: (l.shelf_code || body.location_from) ?? '',
+        sum_amount_rounded: round5(Number(l.sum_amount)),
+      }));
+      const totalAmount = round2(
+        computed.reduce((s, l) => s + l.sum_amount_rounded, 0),
+      );
+
+      // 4. INSERT header
+      await this.repo.insertHeader(client, {
+        docDate: body.doc_date,
+        docNo: docNoStr,
+        docTime,
+        docRef: nullIfEmpty(body.doc_ref?.slice(0, 255)),
+        docRefDate: body.doc_ref_date || null,
+        totalAmount,
+        whFrom: body.wh_from || '',
+        locationFrom: body.location_from || '',
+        remark: nullIfEmpty(body.remark?.slice(0, 255)),
+      });
+
+      // 5. INSERT details
+      let lineNumber = 0;
+      for (const ln of computed) {
+        await this.repo.insertDetail(client, {
           docDate: body.doc_date,
           docNo: docNoStr,
           docTime,
-          docRef: nullIfEmpty(body.doc_ref?.slice(0, 255)),
-          docRefDate: body.doc_ref_date || null,
-          totalAmount,
-          whFrom: body.wh_from || '',
-          locationFrom: body.location_from || '',
-          remark: nullIfEmpty(body.remark?.slice(0, 255)),
+          lineNumber,
+          itemCode: ln.item_code,
+          itemName: ln.item_name || '',
+          unitCode: ln.unit_code,
+          sumAmountRounded: ln.sum_amount_rounded,
+          whCode: ln.wh_code_final,
+          shelfCode: ln.shelf_code_final,
+          standValue: ln.stand_value,
+          divideValue: ln.divide_value,
         });
+        lineNumber++;
+      }
 
-        // 5. INSERT details
-        let lineNumber = 0;
-        for (const ln of computed) {
-          await this.repo.insertDetail(client, {
-            docDate: body.doc_date,
-            docNo: docNoStr,
-            docTime,
-            lineNumber,
-            itemCode: ln.item_code,
-            itemName: ln.item_name || '',
-            unitCode: ln.unit_code,
-            sumAmountRounded: ln.sum_amount_rounded,
-            whCode: ln.wh_code_final,
-            shelfCode: ln.shelf_code_final,
-            standValue: ln.stand_value,
-            divideValue: ln.divide_value,
-          });
-          lineNumber++;
-        }
-
-        return { doc_no: docNoStr, total_amount: totalAmount };
-      },
-    );
+      return { doc_no: docNoStr, total_amount: totalAmount };
+    });
 
     this.logger.log(
       `Saved IA ${result.doc_no} total=${result.total_amount} lines=${validLines.length}`,

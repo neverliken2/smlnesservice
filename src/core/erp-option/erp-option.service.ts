@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { TenantRef } from '../db/db.types';
 import { ERP_OPTION_DEFAULTS } from './erp-option.constants';
 import { ErpOptionRepository } from './erp-option.repository';
 import { ErpOptionResponse } from './erp-option.types';
@@ -16,8 +17,8 @@ import { ErpOptionResponse } from './erp-option.types';
 export class ErpOptionService {
   constructor(private readonly repo: ErpOptionRepository) {}
 
-  async getErpOption(database: string): Promise<ErpOptionResponse> {
-    const row = await this.repo.findErpOption(database);
+  async getErpOption(tenant: TenantRef): Promise<ErpOptionResponse> {
+    const row = await this.repo.findErpOption(tenant);
     return {
       vat_rate: this.normalize(row?.vat_rate, ERP_OPTION_DEFAULTS.VAT_RATE),
       item_amount_decimal: this.normalize(

@@ -13,7 +13,7 @@ NestJS service ตัวกลางระหว่าง Web/Mobile clients ↔
 | **GitHub** | https://github.com/neverliken2/smlnesservice |
 | **Stack** | NestJS 11 + TypeScript strict + pg 8 + JWT + Passport + Zod + Swagger |
 | **Port (dev)** | 3000 (configurable via PORT env) |
-| **Deployment Model** | A — 1 service instance ต่อ 1 ลูกค้า (Docker คนละ server กับ PG) |
+| **Deployment Model** | A — 1 instance/ลูกค้า (env `DB_HOST`) หรือ B — instance เดียว route หลายลูกค้าตาม provider (`CONNECTIONS_FILE`) ดู `docs/multi-connection-plan.md` |
 
 ## ทำไมต้องมี service นี้
 
@@ -110,7 +110,8 @@ src/
 └── core/                            ── shared infra (alt: avoid changing บ่อย)
     ├── db/
     │   ├── db.module.ts             — @Global()
-    │   ├── pool-manager.service.ts  — Pool cache per DB + safeQuery + transaction
+    │   ├── connection-registry.service.ts — provider → PG connection (file + env fallback)
+    │   ├── pool-manager.service.ts  — Pool cache per (provider, DB) + safeQuery + transaction
     │   ├── db.errors.ts             — QueryTimeoutError, DatabaseConnectionError
     │   └── db.types.ts              — TIMEOUTS, QueryOptions
     ├── tenant/
@@ -187,7 +188,8 @@ Error path → [GlobalExceptionFilter] → {success:false, error:{code, message}
 | Key | Required | Default | หมายเหตุ |
 |---|---|---|---|
 | `PORT` | ❌ | 3000 | |
-| `DB_HOST` | ✅ | — | |
+| `CONNECTIONS_FILE` | ❌ | — | path ไฟล์ connection registry (Model B) — provider ที่ไม่อยู่ในไฟล์ fallback ไป `DB_HOST` |
+| `DB_HOST` | ✅* | — | *ไม่บังคับถ้าทุก provider อยู่ใน `CONNECTIONS_FILE` |
 | `DB_PORT` | ❌ | 5432 | |
 | `DB_USER` | ✅ | — | |
 | `DB_PASSWORD` | ✅ | — | |

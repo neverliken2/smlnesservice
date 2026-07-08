@@ -3,6 +3,16 @@
  * Ported from NextStep_CN_Coupon/src/lib/db.ts
  */
 
+/**
+ * ระบุเป้าหมายของ query — provider ใช้ resolve connection (host/creds จาก registry)
+ * และ database คือชื่อ DB บน server นั้น
+ * TenantContext (core/tenant) ส่งเข้ามาตรงๆ ได้เลย (structural typing)
+ */
+export interface TenantRef {
+  provider: string;
+  database: string;
+}
+
 export interface QueryOptions {
   /** Query timeout in milliseconds */
   timeout?: number;

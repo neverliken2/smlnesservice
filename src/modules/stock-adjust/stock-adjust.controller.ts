@@ -90,7 +90,7 @@ export class StockAdjustController {
   ): Promise<SearchItemsResponse> {
     const parsed = this.parse(SearchItemsQuerySchema, query);
     return this.svc.searchItems(
-      tenant.database,
+      tenant,
       parsed.query,
       parsed.offset,
       parsed.limit,
@@ -113,7 +113,7 @@ export class StockAdjustController {
   ): Promise<GetItemDefaultsResponse> {
     const parsed = this.parse(GetItemDefaultsQuerySchema, query);
     return this.svc.getItemDefaults(
-      tenant.database,
+      tenant,
       itemCode,
       parsed.whCode,
       parsed.shelfCode,
@@ -133,7 +133,7 @@ export class StockAdjustController {
     @Query() query: unknown,
   ): Promise<WarehouseOption[]> {
     const parsed = this.parse(SearchWarehousesQuerySchema, query);
-    return this.svc.searchWarehouses(tenant.database, parsed.query);
+    return this.svc.searchWarehouses(tenant, parsed.query);
   }
 
   // ──────────────────────────── /shelves ────────────────────────────
@@ -151,7 +151,7 @@ export class StockAdjustController {
     @Query() query: unknown,
   ): Promise<ShelfOption[]> {
     const parsed = this.parse(SearchShelvesQuerySchema, query);
-    return this.svc.searchShelves(tenant.database, parsed.query, parsed.whCode);
+    return this.svc.searchShelves(tenant, parsed.query, parsed.whCode);
   }
 
   // ──────────────────────────── /item-locations/:itemCode ────────────────────────────
@@ -169,7 +169,7 @@ export class StockAdjustController {
     @Tenant() tenant: TenantContext,
     @Param('itemCode') itemCode: string,
   ): Promise<GetItemLocationsResponse> {
-    return this.svc.getItemLocations(tenant.database, itemCode);
+    return this.svc.getItemLocations(tenant, itemCode);
   }
 
   // ──────────────────────────── /purchase-history/:itemCode ────────────────────────────
@@ -190,7 +190,7 @@ export class StockAdjustController {
   ): Promise<GetPurchaseHistoryResponse> {
     const parsed = this.parse(GetPurchaseHistoryQuerySchema, query);
     return this.svc.getPurchaseHistory(
-      tenant.database,
+      tenant,
       itemCode,
       parsed.offset,
       parsed.limit,
@@ -235,7 +235,7 @@ export class StockAdjustController {
     @Body() body: unknown,
   ): Promise<ValidateImportResponse> {
     const parsed = this.parse(ValidateImportBodySchema, body);
-    return this.svc.validateImport(tenant.database, parsed);
+    return this.svc.validateImport(tenant, parsed);
   }
 
   // ──────────────────────────── POST / (save IA) ────────────────────────────
@@ -253,7 +253,7 @@ export class StockAdjustController {
     @Body() body: unknown,
   ): Promise<SaveStockAdjustResponse> {
     const parsed = this.parse(SaveStockAdjustBodySchema, body);
-    return this.svc.saveStockAdjust(tenant.database, parsed);
+    return this.svc.saveStockAdjust(tenant, parsed);
   }
 
   // ──────────────────────────── Zod parse helper ────────────────────────────

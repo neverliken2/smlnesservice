@@ -99,7 +99,7 @@ export class DashboardService {
 
     const [credit, cash, ret] = await Promise.all([
       this.repo.getSalesAggregate(
-        tenant.database,
+        tenant,
         44,
         fromDate,
         toDate,
@@ -107,7 +107,7 @@ export class DashboardService {
         query.warehouse,
       ),
       this.repo.getSalesAggregate(
-        tenant.database,
+        tenant,
         46,
         fromDate,
         toDate,
@@ -115,7 +115,7 @@ export class DashboardService {
         query.warehouse,
       ),
       this.repo.getSalesAggregate(
-        tenant.database,
+        tenant,
         48,
         fromDate,
         toDate,
@@ -224,7 +224,7 @@ export class DashboardService {
     tenant: TenantContext,
     query: StockBalanceQuery,
   ): Promise<StockBalanceResponse> {
-    const rawRows = await this.repo.getStockBalance(tenant.database, query);
+    const rawRows = await this.repo.getStockBalance(tenant, query);
 
     const rows: StockBalanceRow[] = rawRows.map((r) => {
       const qtyIn = safeNumber(r.qty_in);
@@ -261,8 +261,8 @@ export class DashboardService {
     productCode: string,
   ): Promise<ProductTransactionsResponse> {
     const [latestPurchases, latestSales] = await Promise.all([
-      this.repo.getLatestPurchases(tenant.database, productCode),
-      this.repo.getLatestSales(tenant.database, productCode),
+      this.repo.getLatestPurchases(tenant, productCode),
+      this.repo.getLatestSales(tenant, productCode),
     ]);
 
     return { latestPurchases, latestSales };
@@ -276,14 +276,14 @@ export class DashboardService {
   ): Promise<StockMovementResponse> {
     const [dbRows, begin] = await Promise.all([
       this.repo.getStockMovementRows(
-        tenant.database,
+        tenant,
         query.productCode,
         query.fromDate,
         query.toDate,
       ),
       query.fromDate
         ? this.repo.getStockMovementBegin(
-            tenant.database,
+            tenant,
             query.productCode,
             query.fromDate,
           )
@@ -355,7 +355,7 @@ export class DashboardService {
     tenant: TenantContext,
     query: ReorderPointQuery,
   ): Promise<ReorderPointResponse> {
-    const rawRows = await this.repo.getReorderPoints(tenant.database, query);
+    const rawRows = await this.repo.getReorderPoints(tenant, query);
     const rows = rawRows.map((r) => ({
       ic_code: r.ic_code,
       ic_name: r.ic_name,
@@ -381,7 +381,7 @@ export class DashboardService {
     query: ProfitProductQuery,
   ): Promise<ProfitProductResponse> {
     const { rows, totalRecords, totals } = await this.repo.getProfitProducts(
-      tenant.database,
+      tenant,
       query,
     );
     return {
@@ -413,7 +413,7 @@ export class DashboardService {
     query: DailySalesChartQuery,
   ): Promise<DailySalesChartResponse> {
     const rawRows = await this.repo.getDailySalesChart(
-      tenant.database,
+      tenant,
       query.startDate,
       query.endDate,
       query.groupBy,
@@ -441,13 +441,13 @@ export class DashboardService {
 
     const [openingBalances, transactions] = await Promise.all([
       this.repo.getBankOpeningBalances(
-        tenant.database,
+        tenant,
         fromDate,
         query.bankCode,
         query.bookNo,
       ),
       this.repo.getBankTransactions(
-        tenant.database,
+        tenant,
         fromDate,
         toDate,
         query.bankCode,
@@ -497,7 +497,7 @@ export class DashboardService {
   // ──────────────────────────── Bank Books ────────────────────────────
 
   async bankBooks(tenant: TenantContext): Promise<BankBooksResponse> {
-    const rawBooks = await this.repo.getBankBooks(tenant.database);
+    const rawBooks = await this.repo.getBankBooks(tenant);
 
     // bank_code field อาจอยู่ในรูป "CODE~ชื่อ" — extract code ก่อน
     const splitFirst = (s: string): string =>
@@ -508,8 +508,8 @@ export class DashboardService {
     );
 
     const [banksResult, branchesResult] = await Promise.all([
-      this.repo.getBanksByCodes(tenant.database, uniqueBankCodes),
-      this.repo.getBankBranches(tenant.database).catch(() => []),
+      this.repo.getBanksByCodes(tenant, uniqueBankCodes),
+      this.repo.getBankBranches(tenant).catch(() => []),
     ]);
 
     const bankNameMap = new Map(banksResult.map((b) => [b.code, b.name]));
@@ -549,7 +549,7 @@ export class DashboardService {
     const dateTo = query.dateTo ?? `${yyyy}-${mm}-${dd}`;
 
     const rawRows = await this.repo.getArMovement(
-      tenant.database,
+      tenant,
       dateFrom,
       dateTo,
       query.customerCodes,
@@ -573,10 +573,7 @@ export class DashboardService {
     const asOfDate = query.asOfDate ?? new Date().toISOString().split('T')[0];
     const today = new Date(asOfDate);
 
-    const openInvoices = await this.repo.getArOpenInvoices(
-      tenant.database,
-      asOfDate,
-    );
+    const openInvoices = await this.repo.getArOpenInvoices(tenant, asOfDate);
 
     const customerFilter = parseCustomerCodes(query.customerCodes);
 
@@ -620,10 +617,7 @@ export class DashboardService {
     const asOfDate = query.asOfDate ?? new Date().toISOString().split('T')[0];
     const today = new Date(asOfDate);
 
-    const openInvoices = await this.repo.getArOpenInvoices(
-      tenant.database,
-      asOfDate,
-    );
+    const openInvoices = await this.repo.getArOpenInvoices(tenant, asOfDate);
 
     const customerFilter = parseCustomerCodes(query.customerCodes);
 
@@ -689,7 +683,7 @@ export class DashboardService {
     const dateTo = query.dateTo ?? `${yyyy}-${mm}-${dd}`;
 
     const rawRows = await this.repo.getApMovement(
-      tenant.database,
+      tenant,
       dateFrom,
       dateTo,
       query.supplierCodes,
@@ -713,10 +707,7 @@ export class DashboardService {
     const asOfDate = query.asOfDate ?? new Date().toISOString().split('T')[0];
     const today = new Date(asOfDate);
 
-    const openInvoices = await this.repo.getApOpenInvoices(
-      tenant.database,
-      asOfDate,
-    );
+    const openInvoices = await this.repo.getApOpenInvoices(tenant, asOfDate);
 
     const supplierFilter = parseCustomerCodes(query.supplierCodes);
 
@@ -760,10 +751,7 @@ export class DashboardService {
     const asOfDate = query.asOfDate ?? new Date().toISOString().split('T')[0];
     const today = new Date(asOfDate);
 
-    const openInvoices = await this.repo.getApOpenInvoices(
-      tenant.database,
-      asOfDate,
-    );
+    const openInvoices = await this.repo.getApOpenInvoices(tenant, asOfDate);
 
     const supplierFilter = parseCustomerCodes(query.supplierCodes);
 
