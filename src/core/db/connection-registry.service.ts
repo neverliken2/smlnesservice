@@ -48,6 +48,14 @@ export interface ConnectionConfig {
   source: 'file' | 'env';
 }
 
+/** ผลต่างหลัง reload — ใช้ตัดสินว่า pool ของ provider ไหนต้อง drain */
+export interface ReloadDiff {
+  added: string[];
+  changed: string[];
+  removed: string[];
+  total: number;
+}
+
 @Injectable()
 export class ConnectionRegistryService implements OnModuleInit {
   private readonly logger = new Logger(ConnectionRegistryService.name);
@@ -55,13 +63,49 @@ export class ConnectionRegistryService implements OnModuleInit {
   private fileEntries = new Map<string, ConnectionConfig>();
 
   onModuleInit() {
-    this.loadFile();
+    this.fileEntries = this.parseFile();
     const envMode = process.env.DB_HOST
       ? `env fallback → ${process.env.DB_HOST}`
       : 'no env fallback (DB_HOST unset)';
     this.logger.log(
       `Registry ready: ${this.fileEntries.size} provider(s) from file, ${envMode}`,
     );
+  }
+
+  /**
+   * อ่าน CONNECTIONS_FILE ใหม่ (ใช้กับ POST /admin/reload)
+   * - parse/validate ก่อน swap — ถ้าไฟล์พัง โยน error และ**คง config เดิมไว้**
+   * - คืน diff ให้ caller ตัดสินใจ drain pool ของ provider ที่ changed/removed
+   */
+  reload(): ReloadDiff {
+    const next = this.parseFile();
+    const prev = this.fileEntries;
+
+    const added: string[] = [];
+    const changed: string[] = [];
+    const removed: string[] = [];
+    for (const [key, config] of next) {
+      const old = prev.get(key);
+      if (!old) added.push(key);
+      else if (JSON.stringify(old) !== JSON.stringify(config))
+        changed.push(key);
+    }
+    for (const key of prev.keys()) {
+      if (!next.has(key)) removed.push(key);
+    }
+
+    this.fileEntries = next;
+    this.logger.log(
+      `Registry reloaded: +${added.length} ~${changed.length} -${removed.length} (total ${next.size})`,
+    );
+    return { added, changed, removed, total: next.size };
+  }
+
+  /** ข้อมูล env fallback สำหรับ status endpoint (ไม่มี credentials) */
+  envFallback(): { configured: boolean; host?: string } {
+    return process.env.DB_HOST
+      ? { configured: true, host: process.env.DB_HOST }
+      : { configured: false };
   }
 
   /**
@@ -102,11 +146,11 @@ export class ConnectionRegistryService implements OnModuleInit {
     return Array.from(this.fileEntries.keys());
   }
 
-  private loadFile() {
+  private parseFile(): Map<string, ConnectionConfig> {
     const filePath = process.env.CONNECTIONS_FILE;
     if (!filePath) {
       this.logger.log('CONNECTIONS_FILE unset — env fallback mode only');
-      return;
+      return new Map();
     }
 
     // fail fast ทั้ง 3 เคส (อ่านไม่ได้ / JSON พัง / schema ไม่ผ่าน) —
@@ -148,6 +192,6 @@ export class ConnectionRegistryService implements OnModuleInit {
         `Registered provider "${key}" → ${config.host}:${config.port} (ssl=${config.ssl})`,
       );
     }
-    this.fileEntries = entries;
+    return entries;
   }
 }

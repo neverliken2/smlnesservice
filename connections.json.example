@@ -6,7 +6,7 @@
     "กติกา:",
     "  - 1 entry = 1 provider (ตัวเดียวกับที่ user กรอกตอน login) — ห้ามซ้ำ",
     "  - provider ที่ไม่อยู่ในไฟล์ → fallback ไป DB_HOST/DB_USER/... ใน env (พฤติกรรมเดิม)",
-    "  - แก้ไฟล์แล้วต้อง restart container (hot reload มาใน Phase 2)",
+    "  - แก้ไฟล์แล้วยิง POST /admin/reload (Bearer ADMIN_TOKEN) — ไม่ต้อง restart",
     "  - field optional: port(5432), ssl(false), sslRejectUnauthorized(true), poolMax(20), dbNamePrefix(smlerpmain)",
     "  - ลูกค้า online → ssl: true เสมอ + ให้ลูกค้า whitelist เฉพาะ IP server เรา",
     "  - ⚠️ ไฟล์จริงมี password — ห้าม commit (gitignore ไว้แล้ว) + จำกัดสิทธิ์การอ่านไฟล์"

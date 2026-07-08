@@ -9,9 +9,9 @@ async function bootstrap() {
   });
 
   // Global API prefix — endpoint ทุกตัวอยู่ใต้ /api/v1
-  // ยกเว้น /health (liveness probe) + / (default smoke)
+  // ยกเว้น /health (liveness probe) + / (default smoke) + /admin/* (ops)
   app.setGlobalPrefix('api/v1', {
-    exclude: ['health', '/'],
+    exclude: ['health', '/', 'admin/reload', 'admin/connections/status'],
   });
 
   // หมายเหตุ: validation ใช้ Zod parse manual ใน controller — ไม่ใช้ ValidationPipe

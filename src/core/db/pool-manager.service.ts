@@ -100,6 +100,32 @@ export class PoolManagerService implements OnModuleInit, OnModuleDestroy {
     return this.registry.authDbName(provider);
   }
 
+  /** pool key ทั้งหมดที่เปิดอยู่ (`provider:dbName`) — ใช้กับ status endpoint */
+  openPoolKeys(): string[] {
+    return Array.from(this.pools.keys());
+  }
+
+  /**
+   * ปิดทุก pool ของ provider (ใช้หลัง reload เมื่อ connection config เปลี่ยน)
+   * — query ถัดไปจะสร้าง pool ใหม่ด้วย config ล่าสุดเอง (lazy)
+   */
+  async closeProviderPools(provider: string): Promise<number> {
+    const prefix = `${provider.toLowerCase()}:`;
+    let closed = 0;
+    for (const [key, pool] of Array.from(this.pools.entries())) {
+      if (!key.startsWith(prefix)) continue;
+      this.pools.delete(key);
+      closed++;
+      try {
+        await pool.end();
+        this.logger.log(`Pool drained: ${key}`);
+      } catch (error) {
+        this.logger.error(`Error draining pool ${key}:`, error);
+      }
+    }
+    return closed;
+  }
+
   // ==================== Safe Query ====================
 
   /**

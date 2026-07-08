@@ -160,6 +160,53 @@ describe('ConnectionRegistryService', () => {
     });
   });
 
+  describe('reload', () => {
+    it('reports added/changed/removed diff and swaps config', () => {
+      process.env.CONNECTIONS_FILE = writeConnections({
+        connections: [kunggEntry, { ...kunggEntry, provider: 'next' }],
+      });
+      const svc = initService();
+
+      writeConnections({
+        connections: [
+          { ...kunggEntry, host: 'new-host.example.com' }, // changed
+          { ...kunggEntry, provider: 'wawa' }, // added (next removed)
+        ],
+      });
+      const diff = svc.reload();
+
+      expect(diff).toEqual({
+        added: ['wawa'],
+        changed: ['kungg'],
+        removed: ['next'],
+        total: 2,
+      });
+      expect(svc.resolve('kungg').host).toBe('new-host.example.com');
+      expect(() => svc.resolve('next')).toThrow(/No connection config/);
+    });
+
+    it('returns empty diff when file unchanged', () => {
+      process.env.CONNECTIONS_FILE = writeConnections({
+        connections: [kunggEntry],
+      });
+      const svc = initService();
+      const diff = svc.reload();
+      expect(diff).toEqual({ added: [], changed: [], removed: [], total: 1 });
+    });
+
+    it('keeps old config when new file is invalid', () => {
+      process.env.CONNECTIONS_FILE = writeConnections({
+        connections: [kunggEntry],
+      });
+      const svc = initService();
+
+      writeConnections('{broken');
+      expect(() => svc.reload()).toThrow(/invalid JSON/);
+      // config เดิมต้องยังใช้ได้
+      expect(svc.resolve('kungg').host).toBe('kungg-pg.example.com');
+    });
+  });
+
   describe('authDbName', () => {
     it('uses per-connection dbNamePrefix from file', () => {
       process.env.CONNECTIONS_FILE = writeConnections({

@@ -28,6 +28,10 @@ export enum ErrorCode {
   // Domain (เพิ่มเมื่อ implement endpoint ใหม่)
   DUPLICATE_DOC_NO = 'DUPLICATE_DOC_NO',
 
+  // Admin (multi-connection Phase 2)
+  INVALID_ADMIN_TOKEN = 'INVALID_ADMIN_TOKEN',
+  RELOAD_FAILED = 'RELOAD_FAILED',
+
   // Stock Adjust (IA)
   DOC_FORMAT_NOT_FOUND = 'DOC_FORMAT_NOT_FOUND',
   EMPTY_LINES = 'EMPTY_LINES',

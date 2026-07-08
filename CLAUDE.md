@@ -80,6 +80,10 @@ NextStep CN Coupon (web client)              smlnesservice
 Public
   GET  /health[?provider=demo]                  liveness + optional DB ping
 
+Admin (Bearer <ADMIN_TOKEN> — ไม่ตั้ง env = 404; นอก global prefix)
+  GET  /admin/connections/status                สถานะทุก provider ใน registry + ping
+  POST /admin/reload                            อ่าน CONNECTIONS_FILE ใหม่ ไม่ต้อง restart
+
 Auth
   POST /api/v1/auth/login                       Authorization: Bearer <CLIENT_TOKEN>
                                                 body: {provider, username, password, dataGroup?}
@@ -143,7 +147,10 @@ src/
     │   ├── doc-no.service.ts        — format pattern parser
     │   ├── credit-note.util.ts      — parseDiscountPercent, round2, addDays, etc.
     │   └── dto/*.dto.ts             — Zod schemas + response interfaces
-    └── health/health.module + controller
+    ├── health/health.module + controller
+    └── admin/                       ── /admin/reload + /admin/connections/status
+        ├── admin.controller.ts      — status (ping per provider) + reload (drain pools)
+        └── admin-token.guard.ts     — Bearer ADMIN_TOKEN (timing-safe), 404 ถ้าไม่ตั้ง env
 ```
 
 ## Request Lifecycle
@@ -200,6 +207,7 @@ Error path → [GlobalExceptionFilter] → {success:false, error:{code, message}
 | `PRE_SELECT_EXPIRES_IN` | ❌ | `2m` | pre-select JWT TTL |
 | `SESSION_EXPIRES_IN` | ❌ | `8h` | session JWT TTL |
 | `ALLOWED_CLIENTS_JSON` | ✅ | — | JSON array `[{clientCode, tokenHash}]` — bcrypt hash |
+| `ADMIN_TOKEN` | ❌ | — | Bearer token ของ `/admin/*` — ไม่ตั้ง = admin endpoints ปิด (404) |
 
 **Gen client token:**
 ```js

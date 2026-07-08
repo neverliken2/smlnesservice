@@ -17,6 +17,7 @@ import { StockAdjustModule } from './modules/stock-adjust';
 import { DashboardModule } from './modules/dashboard';
 import { HealthModule } from './modules/health/health.module';
 import { StatusModule } from './modules/status/status.module';
+import { AdminModule } from './modules/admin';
 import { ExecutionContext, Injectable } from '@nestjs/common';
 
 /**
@@ -55,6 +56,7 @@ class GlobalJwtAuthGuard extends JwtAuthGuard {
     DashboardModule,
     HealthModule,
     StatusModule,
+    AdminModule,
   ],
   providers: [
     // JwtAuthGuard ติด global — verify session JWT ทุก endpoint

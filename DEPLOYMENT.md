@@ -27,7 +27,10 @@ Instance เดียว (เช่นบน server บริษัท) route �
 
 - ตั้ง env `CONNECTIONS_FILE=/app/connections.json` + mount ไฟล์ (ดู `connections.json.example`)
 - provider ที่**ไม่อยู่ในไฟล์** fallback ไป `DB_HOST` env เดิม — config Model A เดิมใช้ต่อได้ไม่ต้องแก้
-- แก้ไฟล์แล้ว **restart container** (hot reload มาใน Phase 2)
+- แก้ไฟล์แล้วยิง `POST /admin/reload` (Bearer `ADMIN_TOKEN`) — ไม่ต้อง restart;
+  ไฟล์พังตอบ 400 และคง config เดิม
+- เช็คสถานะทุกลูกค้า: `GET /admin/connections/status` (Bearer `ADMIN_TOKEN`) —
+  ping auth DB + latency ต่อ provider; ไม่ตั้ง `ADMIN_TOKEN` = endpoints ปิด (404)
 - Checklist ต่อลูกค้า online: whitelist เฉพาะ IP server เรา (ห้ามเปิด 5432 สาธารณะ) +
   PG user แยกไม่ใช่ superuser + `ssl: true` + เช็ค provider ไม่ชนกับที่มีอยู่
 - รายละเอียด/เหตุผลการออกแบบ: `docs/multi-connection-plan.md`
