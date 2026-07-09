@@ -1,12 +1,19 @@
 import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     bufferLogs: true,
   });
+
+  // Body size limit — default ของ express.json = 100kb เล็กเกินไป
+  // ใบ IA ที่มี ~1,000 lines (POST /api/v1/stock-adjust) ~300–500 KB
+  // 2 MB เผื่อ headroom ตาม policy ปัจจุบัน (นำเข้าสูงสุด 1,000 lines/ใบ)
+  app.use(json({ limit: '2mb' }));
+  app.use(urlencoded({ extended: true, limit: '2mb' }));
 
   // Global API prefix — endpoint ทุกตัวอยู่ใต้ /api/v1
   // ยกเว้น /health (liveness probe) + / (default smoke) + /admin/* (ops)
