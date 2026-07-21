@@ -9,7 +9,12 @@ import { DocNoService } from '../../core/doc-no/doc-no.service';
 import type { TenantRef } from '../../core/db/db.types';
 import { ErpOptionService } from '../../core/erp-option/erp-option.service';
 import { ErrorCode } from '../../core/error/error-codes';
-import { IA_FORMAT_CODE, IA_TRANS_FLAG } from './stock-adjust.constants';
+import {
+  IA_FORMAT_CODE,
+  IA_TRANS_FLAG,
+  RMB_FORMAT_CODE,
+  RMB_TRANS_FLAG,
+} from './stock-adjust.constants';
 import {
   StockAdjustRepository,
   type ItemLocationDbRow,
@@ -44,6 +49,15 @@ import type {
   SaveStockAdjustBody,
   SaveStockAdjustResponse,
 } from './dto/save-stock-adjust.dto';
+import type {
+  ValidateImportBalanceBody,
+  ValidateImportBalanceResponse,
+  ValidatedImportBalanceRow,
+} from './dto/validate-import-balance.dto';
+import type {
+  SaveStockBalanceBody,
+  SaveStockBalanceResponse,
+} from './dto/save-stock-balance.dto';
 
 /**
  * Stock-Adjust Service — business logic ของ IA module
@@ -593,6 +607,331 @@ export class StockAdjustService {
 
     this.logger.log(
       `Saved IA ${result.doc_no} total=${result.total_amount} lines=${validLines.length}`,
+    );
+    return result;
+  }
+
+  // ──────────────────────────── Validate Import (Balance / RMB) ────────────────────────────
+
+  /**
+   * Validate import rows ของเมนูคงเหลือยกมา (RMB)
+   * - Batch query items + units + warehouses + shelves (กัน N+1)
+   * - ไม่ query stock/cost (เอกสารยกมาไม่สนยอดปัจจุบัน)
+   * - เช็ค wh มีจริง + shelf อยู่ใต้ wh นั้นจริง (pair check)
+   * - Response 200 ทุก case (error per-row)
+   */
+  async validateImportBalance(
+    tenant: TenantRef,
+    body: ValidateImportBalanceBody,
+  ): Promise<ValidateImportBalanceResponse> {
+    const { rows } = body;
+    if (rows.length === 0) {
+      return { rows: [], total: 0, ok_count: 0, error_count: 0 };
+    }
+
+    const itemCodes = Array.from(
+      new Set(rows.map((r) => (r.item_code || '').trim()).filter(Boolean)),
+    );
+    const whCodes = Array.from(
+      new Set(rows.map((r) => (r.wh_code || '').trim()).filter(Boolean)),
+    );
+    const shelfCodes = Array.from(
+      new Set(rows.map((r) => (r.shelf_code || '').trim()).filter(Boolean)),
+    );
+
+    // batch: warehouses + shelves (pair wh|shelf)
+    const [whRows, shelfRows] = await Promise.all([
+      this.repo.findWarehousesByCodes(tenant, whCodes),
+      this.repo.findShelvesByCodes(tenant, shelfCodes),
+    ]);
+    const whSet = new Set(whRows.map((w) => w.code));
+    const shelfPairSet = new Set(
+      shelfRows.map((s) => `${(s.whcode ?? '').trim()}|${s.code}`),
+    );
+
+    const itemRows = await this.repo.findItemsByCodes(tenant, itemCodes);
+    const itemMap = new Map<string, { name: string; unit_standard: string }>();
+    for (const r of itemRows) {
+      itemMap.set(r.code, {
+        name: (r.name_1 ?? '').trim(),
+        unit_standard: r.unit_standard ?? '',
+      });
+    }
+
+    const unitRows = await this.repo.findUnitsByItemCodes(tenant, itemCodes);
+    const unitMap = new Map<
+      string,
+      {
+        code: string;
+        stand_value: number;
+        divide_value: number;
+        ratio: number;
+      }[]
+    >();
+    for (const u of unitRows) {
+      const list = unitMap.get(u.ic_code) || [];
+      list.push({
+        code: u.code ?? '',
+        stand_value: toNumber(u.stand_value, 1),
+        divide_value: toNumber(u.divide_value, 1),
+        ratio: toNumber(u.ratio, 1),
+      });
+      unitMap.set(u.ic_code, list);
+    }
+
+    const validated: ValidatedImportBalanceRow[] = [];
+    for (const r of rows) {
+      const item_code = (r.item_code || '').trim();
+      const unit_code = (r.unit_code || '').trim();
+      const wh_code = (r.wh_code || '').trim();
+      const shelf_code = (r.shelf_code || '').trim();
+      const qty = Number(r.qty);
+      const cost = Number(r.cost);
+
+      const out: ValidatedImportBalanceRow = {
+        row_index: r.row_index,
+        item_code,
+        unit_code,
+        wh_code,
+        shelf_code,
+        qty,
+        cost,
+        valid: false,
+      };
+
+      if (!item_code) {
+        out.error = 'รหัสสินค้าว่าง';
+        validated.push(out);
+        continue;
+      }
+      if (!unit_code) {
+        out.error = 'หน่วยว่าง';
+        validated.push(out);
+        continue;
+      }
+      if (!wh_code) {
+        out.error = 'คลังว่าง';
+        validated.push(out);
+        continue;
+      }
+      if (!shelf_code) {
+        out.error = 'ที่เก็บว่าง';
+        validated.push(out);
+        continue;
+      }
+      if (!whSet.has(wh_code)) {
+        out.error = `ไม่พบคลัง "${wh_code}"`;
+        validated.push(out);
+        continue;
+      }
+      if (!shelfPairSet.has(`${wh_code}|${shelf_code}`)) {
+        out.error = `ไม่พบที่เก็บ "${shelf_code}" ในคลัง "${wh_code}"`;
+        validated.push(out);
+        continue;
+      }
+      if (!Number.isFinite(qty) || qty <= 0) {
+        out.error = 'จำนวนต้องมากกว่า 0';
+        validated.push(out);
+        continue;
+      }
+      if (!Number.isFinite(cost)) {
+        out.error = 'ต้นทุนผิด format';
+        validated.push(out);
+        continue;
+      }
+      if (cost < 0) {
+        out.error = 'ต้นทุนติดลบ';
+        validated.push(out);
+        continue;
+      }
+
+      const item = itemMap.get(item_code);
+      if (!item) {
+        out.error = 'ไม่พบสินค้า';
+        validated.push(out);
+        continue;
+      }
+
+      const units = unitMap.get(item_code) || [];
+      const unit = units.find((u) => u.code === unit_code);
+      if (!unit) {
+        out.error = `หน่วย "${unit_code}" ไม่ตรงกับสินค้า ${item_code}`;
+        out.item_name = item.name;
+        out.unit_standard = item.unit_standard;
+        out.units = units;
+        validated.push(out);
+        continue;
+      }
+
+      out.valid = true;
+      out.item_name = item.name;
+      out.unit_standard = item.unit_standard;
+      out.stand_value = unit.stand_value;
+      out.divide_value = unit.divide_value;
+      out.units = units;
+      validated.push(out);
+    }
+
+    const ok_count = validated.filter((v) => v.valid).length;
+    return {
+      rows: validated,
+      total: validated.length,
+      ok_count,
+      error_count: validated.length - ok_count,
+    };
+  }
+
+  // ──────────────────────────── Save Stock Balance (RMB) ────────────────────────────
+
+  /**
+   * Save RMB (คงเหลือยกมา, trans_flag=54) — โครง transaction เดียวกับ saveStockAdjust
+   * ต่างที่: format RMB, line เก็บ qty จริง + price, sum_amount = qty × price
+   */
+  async saveStockBalance(
+    tenant: TenantRef,
+    body: SaveStockBalanceBody,
+  ): Promise<SaveStockBalanceResponse> {
+    // กรอง line ที่ qty = 0 ออก (no-op)
+    const validLines = body.lines.filter(
+      (l) => l.item_code && Number(l.qty) !== 0,
+    );
+    if (validLines.length === 0) {
+      throw new BadRequestException({
+        code: ErrorCode.EMPTY_LINES,
+        message: 'กรุณาเพิ่มรายการสินค้าอย่างน้อย 1 รายการ',
+      });
+    }
+
+    for (const l of validLines) {
+      const qty = Number(l.qty);
+      const price = Number(l.price);
+      if (!Number.isFinite(qty) || qty <= 0) {
+        throw new BadRequestException({
+          code: ErrorCode.VALIDATION_ERROR,
+          message: `จำนวนไม่ถูกต้อง: ${l.item_code}`,
+        });
+      }
+      if (!Number.isFinite(price) || price < 0) {
+        throw new BadRequestException({
+          code: ErrorCode.VALIDATION_ERROR,
+          message: `ต้นทุนไม่ถูกต้อง: ${l.item_code}`,
+        });
+      }
+      if (!l.unit_code) {
+        throw new BadRequestException({
+          code: ErrorCode.UNIT_NOT_FOUND,
+          message: `กรุณาเลือกหน่วยของสินค้า: ${l.item_code}`,
+        });
+      }
+      // wh/shelf รายบรรทัด (fallback header) — ต้องมีครบทุกบรรทัด
+      const whFinal = ((l.wh_code || body.wh_from) ?? '').trim();
+      const shelfFinal = ((l.shelf_code || body.location_from) ?? '').trim();
+      if (!whFinal || !shelfFinal) {
+        throw new BadRequestException({
+          code: ErrorCode.VALIDATION_ERROR,
+          message: `กรุณาระบุคลัง/ที่เก็บของสินค้า: ${l.item_code}`,
+        });
+      }
+    }
+
+    const docTime = this.resolveDocTime(body.doc_time);
+
+    const result = await this.repo.runInTransaction(tenant, async (client) => {
+      // 1. lock + gen doc_no
+      const fmt = await this.repo.lockDocFormat(client, RMB_FORMAT_CODE);
+      if (!fmt) {
+        throw new NotFoundException({
+          code: ErrorCode.DOC_FORMAT_NOT_FOUND,
+          message: `ไม่พบ doc_format "${RMB_FORMAT_CODE}" ใน erp_doc_format`,
+        });
+      }
+      const format = fmt.format || '';
+      if (!format) {
+        throw new BadRequestException({
+          code: ErrorCode.VALIDATION_ERROR,
+          message: 'format ของ doc_format ว่าง',
+        });
+      }
+
+      const docNoStr = await expandDocNo({
+        format,
+        docDate: body.doc_date,
+        formatCode: RMB_FORMAT_CODE,
+        findLast: async (pgPattern) => {
+          const last = await this.repo.findLastDocNoInTx(
+            client,
+            RMB_TRANS_FLAG,
+            RMB_FORMAT_CODE,
+            pgPattern,
+          );
+          return last?.doc_no;
+        },
+      });
+
+      // 2. check duplicate
+      const exists = await this.repo.isDocNoExists(
+        client,
+        RMB_TRANS_FLAG,
+        docNoStr,
+      );
+      if (exists) {
+        throw new ConflictException({
+          code: ErrorCode.DUPLICATE_DOC_NO,
+          message: `เลขที่เอกสาร ${docNoStr} ซ้ำ — กรุณาลองใหม่`,
+        });
+      }
+
+      // 3. คำนวณมูลค่าต่อบรรทัด + total (wh/shelf: line > header)
+      const computed = validLines.map((l) => ({
+        ...l,
+        wh_code_final: ((l.wh_code || body.wh_from) ?? '').trim(),
+        shelf_code_final: ((l.shelf_code || body.location_from) ?? '').trim(),
+        sum_amount_rounded: round5(Number(l.qty) * Number(l.price)),
+      }));
+      const totalAmount = round2(
+        computed.reduce((s, l) => s + l.sum_amount_rounded, 0),
+      );
+
+      // 4. INSERT header
+      await this.repo.insertBalanceHeader(client, {
+        docDate: body.doc_date,
+        docNo: docNoStr,
+        docTime,
+        docRef: nullIfEmpty(body.doc_ref?.slice(0, 255)),
+        docRefDate: body.doc_ref_date || null,
+        totalAmount,
+        whFrom: body.wh_from,
+        locationFrom: body.location_from,
+        remark: nullIfEmpty(body.remark?.slice(0, 255)),
+      });
+
+      // 5. INSERT details — wh/shelf รายบรรทัด (fallback header)
+      let lineNumber = 0;
+      for (const ln of computed) {
+        await this.repo.insertBalanceDetail(client, {
+          docDate: body.doc_date,
+          docNo: docNoStr,
+          docTime,
+          lineNumber,
+          itemCode: ln.item_code,
+          itemName: ln.item_name || '',
+          unitCode: ln.unit_code,
+          qty: Number(ln.qty),
+          price: Number(ln.price),
+          sumAmountRounded: ln.sum_amount_rounded,
+          whCode: ln.wh_code_final,
+          shelfCode: ln.shelf_code_final,
+          standValue: ln.stand_value,
+          divideValue: ln.divide_value,
+        });
+        lineNumber++;
+      }
+
+      return { doc_no: docNoStr, total_amount: totalAmount };
+    });
+
+    this.logger.log(
+      `Saved RMB ${result.doc_no} total=${result.total_amount} lines=${validLines.length}`,
     );
     return result;
   }

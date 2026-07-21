@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -51,6 +52,15 @@ import {
   SaveStockAdjustBodySchema,
   type SaveStockAdjustResponse,
 } from './dto/save-stock-adjust.dto';
+import {
+  ValidateImportBalanceBodySchema,
+  type ValidateImportBalanceResponse,
+} from './dto/validate-import-balance.dto';
+import {
+  SaveStockBalanceBodySchema,
+  type SaveStockBalanceResponse,
+} from './dto/save-stock-balance.dto';
+import { StockAdjustPermissionService } from '../auth/stock-adjust-permission.service';
 
 /**
  * Stock-Adjust Controller — REST endpoints ของ IA module
@@ -71,7 +81,10 @@ import {
 @ApiBearerAuth('sessionJwt')
 @Controller('stock-adjust')
 export class StockAdjustController {
-  constructor(private readonly svc: StockAdjustService) {}
+  constructor(
+    private readonly svc: StockAdjustService,
+    private readonly permission: StockAdjustPermissionService,
+  ) {}
 
   // ──────────────────────────── /items ────────────────────────────
 
@@ -254,6 +267,87 @@ export class StockAdjustController {
   ): Promise<SaveStockAdjustResponse> {
     const parsed = this.parse(SaveStockAdjustBodySchema, body);
     return this.svc.saveStockAdjust(tenant, parsed);
+  }
+
+  // ──────────────────────────── POST /validate-import-balance (RMB) ────────────────────────────
+
+  @Post('validate-import-balance')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Validate import rows ของเมนูคงเหลือยกมา (batch ≤ 1000)',
+    description:
+      'Batch query items + units แล้ว validate ทีละ row (item มีจริง, unit ตรง, qty > 0, cost ≥ 0). ' +
+      'ไม่ query stock/cost. Response 200 ทุก case — error อยู่ใน row.error. ' +
+      'ต้องมีสิทธิ์ menu_ic_stk_balance',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['rows'],
+      properties: {
+        rows: {
+          type: 'array',
+          maxItems: 1000,
+          items: {
+            type: 'object',
+            properties: {
+              row_index: { type: 'number' },
+              item_code: { type: 'string' },
+              unit_code: { type: 'string' },
+              qty: { type: 'number' },
+              cost: { type: 'number' },
+            },
+          },
+        },
+      },
+    },
+  })
+  async validateImportBalance(
+    @Tenant() tenant: TenantContext,
+    @Body() body: unknown,
+  ): Promise<ValidateImportBalanceResponse> {
+    await this.assertBalancePermission(tenant);
+    const parsed = this.parse(ValidateImportBalanceBodySchema, body);
+    return this.svc.validateImportBalance(tenant, parsed);
+  }
+
+  // ──────────────────────────── POST /balance (save RMB) ────────────────────────────
+
+  @Post('balance')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Save RMB document — คงเหลือยกมา (transaction)',
+    description:
+      'lock erp_doc_format "RMB" (FOR UPDATE) → gen doc_no in-tx → check duplicate → ' +
+      'INSERT ic_trans (trans_flag=54) + ic_trans_detail (qty จริง, price = ต้นทุน/หน่วย, ' +
+      'sum_amount = qty × price). ทั้งใบใช้ wh_from/location_from จาก header. ' +
+      'ต้องมีสิทธิ์ menu_ic_stk_balance',
+  })
+  async saveStockBalance(
+    @Tenant() tenant: TenantContext,
+    @Body() body: unknown,
+  ): Promise<SaveStockBalanceResponse> {
+    await this.assertBalancePermission(tenant);
+    const parsed = this.parse(SaveStockBalanceBodySchema, body);
+    return this.svc.saveStockBalance(tenant, parsed);
+  }
+
+  /**
+   * Guard สิทธิ์เมนู "คงเหลือยกมา" (menu_ic_stk_balance) — เช็คสดต่อ request
+   * (กันยิงตรงข้าม UI; token ไม่ได้ฝัง flag นี้)
+   */
+  private async assertBalancePermission(tenant: TenantContext): Promise<void> {
+    const perm = await this.permission.checkStockBalanceAccess(
+      tenant.provider,
+      tenant.userCode,
+    );
+    if (!perm.allowed) {
+      throw new ForbiddenException({
+        code: ErrorCode.NO_PERMISSION,
+        message:
+          'ไม่มีสิทธิ์เมนู "สินค้า/วัตถุดิบ คงเหลือยกมา" (menu_ic_stk_balance)',
+      });
+    }
   }
 
   // ──────────────────────────── Zod parse helper ────────────────────────────

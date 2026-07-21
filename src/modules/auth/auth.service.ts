@@ -79,6 +79,7 @@ export class AuthService {
     let permReason = 'unknown-client';
     let permIsRead = false;
     let permIsAdd = false;
+    let menuPermissions: LoginResponse['permissions'];
 
     if (clientCode === CLIENT_CN_COUPON) {
       const perm = await this.cnPermission.checkCreditNoteAccess(
@@ -98,6 +99,13 @@ export class AuthService {
       permReason = perm.reason;
       permIsRead = perm.isRead;
       permIsAdd = perm.isAdd;
+      // เช็คเมนูย่อย "คงเหลือยกมา" แยก — ไม่กระทบ gate หลัก
+      const balancePerm =
+        await this.stockAdjustPermission.checkStockBalanceAccess(
+          provider,
+          user.user_code,
+        );
+      menuPermissions = { canStockBalance: balancePerm.allowed };
     } else if (clientCode === CLIENT_DASHBOARD) {
       permAllowed = true;
       permReason = 'dashboard-no-menu-check';
@@ -153,6 +161,7 @@ export class AuthService {
       preSelectExpiresIn: parseDurationSeconds(preSelectTtl),
       user: userInfo,
       databases,
+      ...(menuPermissions ? { permissions: menuPermissions } : {}),
     };
   }
 

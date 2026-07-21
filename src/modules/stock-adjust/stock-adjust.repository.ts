@@ -8,6 +8,10 @@ import {
   IA_INQUIRY_TYPE,
   IA_TRANS_FLAG,
   IA_TRANS_TYPE,
+  RMB_FORMAT_CODE,
+  RMB_INQUIRY_TYPE,
+  RMB_TRANS_FLAG,
+  RMB_TRANS_TYPE,
 } from './stock-adjust.constants';
 
 /**
@@ -451,6 +455,43 @@ FROM t2`;
     return result.rows;
   }
 
+  /**
+   * ดึง warehouse หลาย code ใน query เดียว — ใช้ใน validate-import-balance
+   */
+  async findWarehousesByCodes(
+    tenant: TenantRef,
+    codes: string[],
+  ): Promise<Array<{ code: string }>> {
+    if (codes.length === 0) return [];
+    const result = await this.pool.query<{ code: string }>(
+      tenant,
+      `SELECT code FROM ic_warehouse WHERE code = ANY($1::text[])`,
+      [codes],
+      { timeout: 10_000 },
+    );
+    return result.rows;
+  }
+
+  /**
+   * ดึง shelf หลาย code ใน query เดียว (คืนคู่ code+whcode ให้ service เช็ค pair)
+   */
+  async findShelvesByCodes(
+    tenant: TenantRef,
+    codes: string[],
+  ): Promise<Array<{ code: string; whcode: string | null }>> {
+    if (codes.length === 0) return [];
+    const result = await this.pool.query<{
+      code: string;
+      whcode: string | null;
+    }>(
+      tenant,
+      `SELECT code, whcode FROM ic_shelf WHERE code = ANY($1::text[])`,
+      [codes],
+      { timeout: 10_000 },
+    );
+    return result.rows;
+  }
+
   // ──────────────────────────── Transaction helpers (save IA) ────────────────────────────
 
   /**
@@ -521,7 +562,7 @@ FROM t2`;
   /**
    * INSERT ic_trans (header) สำหรับเอกสาร IA
    *   - status, last_status, used_status, used_status_2, doc_success = 0
-   *   - branch_code = '0000'
+   *   - branch_code = '' (ว่าง — ตรงกับที่ desktop บันทึกเอกสาร IA/RMB)
    *   - creator_code = last_editor_code = APP_CREATOR_CODE
    *   - inquiry_type = 0 (1.ปรับปรุงสินค้า)
    */
@@ -578,7 +619,7 @@ FROM t2`;
         params.totalAmount, // $10
         params.whFrom.slice(0, 25), // $11
         params.locationFrom.slice(0, 25), // $12
-        '0000', // $13 branch_code default
+        '', // $13 branch_code (desktop RMB/IA ใช้ค่าว่าง)
         params.remark, // $14
         APP_CREATOR_CODE, // $15
       ],
@@ -592,7 +633,7 @@ FROM t2`;
    *   - ratio = 0 (smlerp ตั้งใจ set 0)
    *   - is_get_price = 1, ref_row = -1
    *   - price_type, price_mode = NULL
-   *   - branch_code = '0000', calc_flag = 1
+   *   - branch_code = '' (ว่าง — ตรงกับ desktop), calc_flag = 1
    */
   async insertDetail(
     client: PoolClient,
@@ -662,10 +703,163 @@ FROM t2`;
         params.sumAmountRounded, // $12 sum_amount + sum_of_cost + ...
         params.whCode.slice(0, 25), // $13
         params.shelfCode.slice(0, 25), // $14
-        '0000', // $15 branch_code default
+        '', // $15 branch_code (desktop RMB/IA ใช้ค่าว่าง)
         params.standValue, // $16
         params.divideValue, // $17
         IA_INQUIRY_TYPE, // $18
+        APP_CREATOR_CODE, // $19
+      ],
+    );
+  }
+
+  // ──────────────────────────── Transaction helpers (save RMB — คงเหลือยกมา) ────────────────────────────
+
+  /**
+   * INSERT ic_trans (header) สำหรับเอกสาร RMB (คงเหลือยกมา, trans_flag=54)
+   * โครงเดียวกับ insertHeader ของ IA ต่างแค่ trans_flag/format
+   */
+  async insertBalanceHeader(
+    client: PoolClient,
+    params: {
+      docDate: string;
+      docNo: string;
+      docTime: string;
+      docRef: string | null;
+      docRefDate: string | null;
+      totalAmount: number;
+      whFrom: string;
+      locationFrom: string;
+      remark: string | null;
+    },
+  ): Promise<void> {
+    await client.query(
+      `INSERT INTO ic_trans (
+         trans_type, trans_flag,
+         doc_date, doc_no, doc_format_code, doc_time,
+         doc_ref, doc_ref_date,
+         inquiry_type,
+         total_amount,
+         wh_from, location_from,
+         branch_code,
+         remark,
+         status, last_status, used_status, used_status_2, doc_success,
+         creator_code, last_editor_code,
+         create_datetime, create_date_time_now
+       ) VALUES (
+         $1, $2,
+         $3, $4, $5, $6,
+         $7, $8,
+         $9,
+         $10,
+         $11, $12,
+         $13,
+         $14,
+         0, 0, 0, 0, 0,
+         $15, $15,
+         NOW(), NOW()
+       )`,
+      [
+        RMB_TRANS_TYPE, // $1
+        RMB_TRANS_FLAG, // $2
+        params.docDate, // $3
+        params.docNo, // $4
+        RMB_FORMAT_CODE, // $5
+        params.docTime, // $6
+        params.docRef, // $7
+        params.docRefDate, // $8
+        RMB_INQUIRY_TYPE, // $9
+        params.totalAmount, // $10
+        params.whFrom.slice(0, 25), // $11
+        params.locationFrom.slice(0, 25), // $12
+        '', // $13 branch_code (desktop RMB/IA ใช้ค่าว่าง)
+        params.remark, // $14
+        APP_CREATOR_CODE, // $15
+      ],
+    );
+  }
+
+  /**
+   * INSERT ic_trans_detail (1 line) สำหรับเอกสาร RMB (คงเหลือยกมา)
+   * Mirror แถวที่ desktop บันทึก (ยืนยันจาก DB demo doc RMB-2606-0001):
+   *   - qty = จำนวนจริง, price = ต้นทุน/หน่วย
+   *   - sum_amount = sum_of_cost = sum_amount_exclude_vat = sum_of_cost_1 = qty × price
+   *   - average_cost = average_cost_1 = price
+   *   - ratio = 0, calc_flag = 1, is_get_price = 1, ref_row = -1
+   */
+  async insertBalanceDetail(
+    client: PoolClient,
+    params: {
+      docDate: string;
+      docNo: string;
+      docTime: string;
+      lineNumber: number;
+      itemCode: string;
+      itemName: string;
+      unitCode: string;
+      qty: number;
+      price: number;
+      sumAmountRounded: number;
+      whCode: string;
+      shelfCode: string;
+      standValue: number;
+      divideValue: number;
+    },
+  ): Promise<void> {
+    await client.query(
+      `INSERT INTO ic_trans_detail (
+         trans_type, trans_flag,
+         doc_date, doc_no, doc_time,
+         line_number,
+         item_code, item_name, unit_code,
+         qty, price,
+         sum_amount, sum_of_cost, sum_amount_exclude_vat,
+         sum_of_cost_1, average_cost, average_cost_1,
+         wh_code, shelf_code, branch_code,
+         stand_value, divide_value, ratio,
+         calc_flag, vat_type, item_type, inquiry_type,
+         is_get_price, ref_row,
+         price_type, price_mode,
+         status, last_status,
+         doc_date_calc, doc_time_calc,
+         creator_code, last_editor_code,
+         create_date_time_now
+       ) VALUES (
+         $1, $2,
+         $3, $4, $5,
+         $6,
+         $7, $8, $9,
+         $10, $11,
+         $12, $12, $12,
+         $12, $11, $11,
+         $13, $14, $15,
+         $16, $17, 0,
+         1, 0, 0, $18,
+         1, -1,
+         NULL, NULL,
+         0, 0,
+         $3, $5,
+         $19, $19,
+         NOW()
+       )`,
+      [
+        RMB_TRANS_TYPE, // $1
+        RMB_TRANS_FLAG, // $2
+        params.docDate, // $3
+        params.docNo, // $4
+        params.docTime, // $5
+        params.lineNumber, // $6
+        params.itemCode, // $7
+        params.itemName.slice(0, 200), // $8
+        params.unitCode, // $9
+        params.qty, // $10 จำนวนจริง
+        params.price, // $11 ต้นทุน/หน่วย → average_cost ด้วย
+        params.sumAmountRounded, // $12 sum_amount + sum_of_cost + ...
+        params.whCode.slice(0, 25), // $13
+        params.shelfCode.slice(0, 25), // $14
+        '', // $15 branch_code (desktop RMB/IA ใช้ค่าว่าง)
+        params.standValue, // $16
+        params.divideValue, // $17
+        RMB_INQUIRY_TYPE, // $18
         APP_CREATOR_CODE, // $19
       ],
     );

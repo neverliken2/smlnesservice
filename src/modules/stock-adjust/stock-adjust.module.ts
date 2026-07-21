@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { StockAdjustController } from './stock-adjust.controller';
 import { StockAdjustRepository } from './stock-adjust.repository';
 import { StockAdjustService } from './stock-adjust.service';
+import { StockAdjustPermissionService } from '../auth/stock-adjust-permission.service';
 
 /**
  * Stock-Adjust Module — IA (Inventory Adjust) endpoints
@@ -27,6 +28,12 @@ import { StockAdjustService } from './stock-adjust.service';
  */
 @Module({
   controllers: [StockAdjustController],
-  providers: [StockAdjustService, StockAdjustRepository],
+  // StockAdjustPermissionService stateless (พึ่งแค่ PoolManagerService จาก @Global DbModule)
+  // → register ซ้ำใน module นี้ได้ ไม่ต้อง export จาก AuthFeatureModule
+  providers: [
+    StockAdjustService,
+    StockAdjustRepository,
+    StockAdjustPermissionService,
+  ],
 })
 export class StockAdjustModule {}

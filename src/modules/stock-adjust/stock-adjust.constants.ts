@@ -16,3 +16,16 @@ export const IA_TRANS_TYPE = 3; // Inventory
 export const IA_INQUIRY_TYPE = 0; // 1.ปรับปรุงสินค้า
 export const APP_CREATOR_CODE = 'nextstep_stock_adjust';
 export const PURCHASE_TRANS_FLAG = 12; // ใช้ใน getPurchaseHistory
+
+/**
+ * Constants ของเอกสาร RMB (สินค้า/วัตถุดิบ คงเหลือยกมา — Beginning Balance)
+ *
+ * อ้างอิง SMLERP22: trans_flag=54 (สินค้า_ยอดคงเหลือสินค้ายกมา), ยกเลิก=55
+ * ต่างจาก IA: detail เก็บ qty จริง + price (ต้นทุน/หน่วย), sum_amount = qty × price
+ * Field values ยืนยันจากเอกสารจริงที่ desktop บันทึก (DB demo, doc RMB-2606-0001):
+ *   average_cost = price, ratio = 0, calc_flag = 1, is_get_price = 1, ref_row = -1
+ */
+export const RMB_TRANS_FLAG = 54;
+export const RMB_FORMAT_CODE = 'RMB';
+export const RMB_TRANS_TYPE = 3; // Inventory
+export const RMB_INQUIRY_TYPE = 0;

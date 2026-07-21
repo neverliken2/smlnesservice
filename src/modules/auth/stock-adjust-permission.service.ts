@@ -8,6 +8,12 @@ import type { TenantRef } from '../../core/db/db.types';
  */
 const GATE_MENU_CODE = 'menu_ic_stk_adjust';
 
+/**
+ * Menu code ของเมนู "สินค้า/วัตถุดิบ คงเหลือยกมา" (RMB, trans_flag=54)
+ * ตรงกับ menu_ic_stk_balance ใน SMLERP22 (_selectMenu.cs ฝั่ง SMLERPIC)
+ */
+const BALANCE_MENU_CODE = 'menu_ic_stk_balance';
+
 export interface StockAdjustPermissionResult {
   allowed: boolean;
   isRead: boolean;
@@ -47,6 +53,25 @@ export class StockAdjustPermissionService {
     provider: string,
     usercode: string,
   ): Promise<StockAdjustPermissionResult> {
+    return this.checkMenuAccess(provider, usercode, GATE_MENU_CODE);
+  }
+
+  /**
+   * เช็คสิทธิ์เมนู "สินค้า/วัตถุดิบ คงเหลือยกมา" (menu_ic_stk_balance)
+   * ใช้ทั้งตอน login (ส่ง flag ให้ FE ซ่อน/แสดงเมนู) และ guard endpoint /balance
+   */
+  async checkStockBalanceAccess(
+    provider: string,
+    usercode: string,
+  ): Promise<StockAdjustPermissionResult> {
+    return this.checkMenuAccess(provider, usercode, BALANCE_MENU_CODE);
+  }
+
+  private async checkMenuAccess(
+    provider: string,
+    usercode: string,
+    menuCode: string,
+  ): Promise<StockAdjustPermissionResult> {
     if (usercode.toLowerCase() === 'superadmin') {
       return {
         allowed: true,
@@ -83,7 +108,7 @@ export class StockAdjustPermissionService {
     };
 
     for (const blob of allBlobs) {
-      const flags = this.parseMenuFlags(blob, GATE_MENU_CODE);
+      const flags = this.parseMenuFlags(blob, menuCode);
       if (flags) {
         foundMenu = true;
         merged.isRead ||= flags.isRead;

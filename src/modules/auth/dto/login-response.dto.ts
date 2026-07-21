@@ -11,16 +11,26 @@ export interface DatabaseInfo {
 }
 
 /**
+ * สิทธิ์เมนูเพิ่มเติม (per-client) — ตอนนี้มีเฉพาะ nextstep-stock-adjust
+ */
+export interface MenuPermissions {
+  /** menu_ic_stk_balance — เมนู "สินค้า/วัตถุดิบ คงเหลือยกมา" (RMB) */
+  canStockBalance: boolean;
+}
+
+/**
  * Response ของ /auth/login
  *
  * - preSelectToken — JWT ชั่วคราว (default 2m) ใช้ผ่าน /auth/select-database
  * - databases — list ที่ user มีสิทธิ์ (filter ตาม dataGroup ถ้า provide)
+ * - permissions — สิทธิ์เมนูย่อย (มีเฉพาะ client ที่เกี่ยวข้อง เช่น nextstep-stock-adjust)
  */
 export interface LoginResponse {
   preSelectToken: string;
   preSelectExpiresIn: number;
   user: UserInfo;
   databases: DatabaseInfo[];
+  permissions?: MenuPermissions;
 }
 
 /**
