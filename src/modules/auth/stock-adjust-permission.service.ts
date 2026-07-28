@@ -14,6 +14,12 @@ const GATE_MENU_CODE = 'menu_ic_stk_adjust';
  */
 const BALANCE_MENU_CODE = 'menu_ic_stk_balance';
 
+/**
+ * Menu code ของเมนู "ปรับปรุงสต็อกสินค้า/วัตถุดิบ (ลด)" (IS, trans_flag=68)
+ * ตรงกับ menu_ic_stk_adjust_subtract ใน SMLERP22 (_selectMenu.cs ฝั่ง SMLERPIC)
+ */
+const REDUCE_MENU_CODE = 'menu_ic_stk_adjust_subtract';
+
 export interface StockAdjustPermissionResult {
   allowed: boolean;
   isRead: boolean;
@@ -65,6 +71,17 @@ export class StockAdjustPermissionService {
     usercode: string,
   ): Promise<StockAdjustPermissionResult> {
     return this.checkMenuAccess(provider, usercode, BALANCE_MENU_CODE);
+  }
+
+  /**
+   * เช็คสิทธิ์เมนู "ปรับปรุงสต็อกสินค้า/วัตถุดิบ (ลด)" (menu_ic_stk_adjust_subtract)
+   * ใช้ทั้งตอน login (ส่ง flag ให้ FE ซ่อน/แสดงเมนู) และ guard endpoint /reduce
+   */
+  async checkStockAdjustReduceAccess(
+    provider: string,
+    usercode: string,
+  ): Promise<StockAdjustPermissionResult> {
+    return this.checkMenuAccess(provider, usercode, REDUCE_MENU_CODE);
   }
 
   private async checkMenuAccess(

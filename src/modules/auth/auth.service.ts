@@ -99,13 +99,21 @@ export class AuthService {
       permReason = perm.reason;
       permIsRead = perm.isRead;
       permIsAdd = perm.isAdd;
-      // เช็คเมนูย่อย "คงเหลือยกมา" แยก — ไม่กระทบ gate หลัก
-      const balancePerm =
-        await this.stockAdjustPermission.checkStockBalanceAccess(
+      // เช็คเมนูย่อย "คงเหลือยกมา" + "ปรับปรุงสต็อก (ลด)" แยก — ไม่กระทบ gate หลัก
+      const [balancePerm, reducePerm] = await Promise.all([
+        this.stockAdjustPermission.checkStockBalanceAccess(
           provider,
           user.user_code,
-        );
-      menuPermissions = { canStockBalance: balancePerm.allowed };
+        ),
+        this.stockAdjustPermission.checkStockAdjustReduceAccess(
+          provider,
+          user.user_code,
+        ),
+      ]);
+      menuPermissions = {
+        canStockBalance: balancePerm.allowed,
+        canStockAdjustReduce: reducePerm.allowed,
+      };
     } else if (clientCode === CLIENT_DASHBOARD) {
       permAllowed = true;
       permReason = 'dashboard-no-menu-check';

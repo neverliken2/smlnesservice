@@ -50,6 +50,7 @@ import {
 } from './dto/validate-import.dto';
 import {
   SaveStockAdjustBodySchema,
+  SaveStockReduceBodySchema,
   type SaveStockAdjustResponse,
 } from './dto/save-stock-adjust.dto';
 import {
@@ -267,6 +268,47 @@ export class StockAdjustController {
   ): Promise<SaveStockAdjustResponse> {
     const parsed = this.parse(SaveStockAdjustBodySchema, body);
     return this.svc.saveStockAdjust(tenant, parsed);
+  }
+
+  // ──────────────────────────── POST /reduce (save IS) ────────────────────────────
+
+  @Post('reduce')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary:
+      'Save IS document — ปรับปรุงสต็อกสินค้า/วัตถุดิบ (ลด) / ตัดสต็อกออก',
+    description:
+      'lock erp_doc_format "IS" (FOR UPDATE) → gen doc_no in-tx → check duplicate → ' +
+      'INSERT ic_trans (trans_flag=68) + ic_trans_detail (qty = จำนวนที่ตัด, ' +
+      'price = ทุนเฉลี่ยปัจจุบัน, sum_amount = qty × price, calc_flag=−1). ' +
+      'qty/price/sum_amount ต้องเป็นค่าบวกทั้งหมด — calc_flag=−1 จะพาไปหักออกเอง ' +
+      'ทำให้ทั้งจำนวนคงเหลือและมูลค่าลดลง. ต้องมีสิทธิ์ menu_ic_stk_adjust_subtract',
+  })
+  async saveStockAdjustReduce(
+    @Tenant() tenant: TenantContext,
+    @Body() body: unknown,
+  ): Promise<SaveStockAdjustResponse> {
+    await this.assertReducePermission(tenant);
+    const parsed = this.parse(SaveStockReduceBodySchema, body);
+    return this.svc.saveStockAdjustReduce(tenant, parsed);
+  }
+
+  /**
+   * Guard สิทธิ์เมนู "ปรับปรุงสต็อกสินค้า/วัตถุดิบ (ลด)" (menu_ic_stk_adjust_subtract)
+   * เช็คสดต่อ request (กันยิงตรงข้าม UI; token ไม่ได้ฝัง flag นี้)
+   */
+  private async assertReducePermission(tenant: TenantContext): Promise<void> {
+    const perm = await this.permission.checkStockAdjustReduceAccess(
+      tenant.provider,
+      tenant.userCode,
+    );
+    if (!perm.allowed) {
+      throw new ForbiddenException({
+        code: ErrorCode.NO_PERMISSION,
+        message:
+          'ไม่มีสิทธิ์เมนู "ปรับปรุงสต็อกสินค้า/วัตถุดิบ (ลด)" (menu_ic_stk_adjust_subtract)',
+      });
+    }
   }
 
   // ──────────────────────────── POST /validate-import-balance (RMB) ────────────────────────────

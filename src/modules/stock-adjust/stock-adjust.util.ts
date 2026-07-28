@@ -1,3 +1,5 @@
+import { randomUUID } from 'crypto';
+
 /**
  * Helpers ของ stock-adjust module
  *
@@ -18,6 +20,76 @@ export function nullIfEmpty(s: string | null | undefined): string | null {
   if (s === null || s === undefined) return null;
   const t = String(s).trim();
   return t === '' ? null : t;
+}
+
+// ──────────────────────────── Audit log (ตาราง logs) ────────────────────────────
+
+/**
+ * 'YYYY-MM-DD' → 'D/M/พ.ศ.' เช่น '2026-07-28' → '28/7/2569'
+ * (รูปแบบเดียวกับที่ desktop เขียนลง logs.data1 — ไม่ pad ศูนย์)
+ */
+export function toThaiShortDate(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+  if (!m) return '';
+  const [, y, mm, dd] = m;
+  return `${Number(dd)}/${Number(mm)}/${Number(y) + 543}`;
+}
+
+function escapeXml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+export interface AuditData1Fields {
+  docDate: string; // 'YYYY-MM-DD'
+  docTime: string;
+  docNo: string;
+  docFormatCode: string;
+  docRefDate: string | null;
+  docRef: string | null;
+  whFrom: string;
+  locationFrom: string;
+  remark: string | null;
+}
+
+/**
+ * สร้างค่า `logs.data1` — snapshot ของหัวเอกสาร
+ *
+ * รูปแบบ mirror จาก `_icTransScreenTop._logCreate("top")` ของ SMLERP22
+ * (ยืนยันกับเอกสารจริง IS-2607-0001 ที่ desktop บันทึก):
+ *   <?xml version="1.0" encoding="utf-8"?><top><d t=2 f=doc_date>28/7/2569</d>...</top>
+ *   t=1 string, t=2 date
+ *
+ * ⚠️ desktop เก็บค่านี้ในรูป **escape แล้ว** (`&lt;` ไม่ใช่ `<`) เพราะส่ง query ผ่าน XML
+ *    เราจึง escape ให้เหมือนกัน ไม่งั้นหน้าดู audit log ของ desktop จะแสดงผลต่างกัน
+ */
+export function buildAuditData1(f: AuditData1Fields): string {
+  const d = (t: number, field: string, value: string) =>
+    `<d t=${t} f=${field}>${value ?? ''}</d>`;
+
+  const xml =
+    '<?xml version="1.0" encoding="utf-8"?><top>' +
+    d(2, 'doc_date', toThaiShortDate(f.docDate)) +
+    d(1, 'doc_time', f.docTime || '') +
+    d(1, 'doc_no', f.docNo) +
+    d(1, 'doc_format_code', f.docFormatCode) +
+    d(2, 'doc_ref_date', toThaiShortDate(f.docRefDate || '')) +
+    d(1, 'doc_ref', f.docRef || '') +
+    d(1, 'wh_from', f.whFrom || '') +
+    d(1, 'location_from', f.locationFrom || '') +
+    d(1, 'remark', f.remark || '') +
+    '</top>';
+
+  return escapeXml(xml).slice(0, 5000);
+}
+
+/** guid 32 hex ไม่มีขีด — ตรงกับ `Guid.NewGuid().ToString("N")` ของ desktop */
+export function newAuditGuid(): string {
+  return randomUUID().replace(/-/g, '');
 }
 
 /**

@@ -16,6 +16,8 @@ export interface DatabaseInfo {
 export interface MenuPermissions {
   /** menu_ic_stk_balance — เมนู "สินค้า/วัตถุดิบ คงเหลือยกมา" (RMB) */
   canStockBalance: boolean;
+  /** menu_ic_stk_adjust_subtract — เมนู "ปรับปรุงสต็อกสินค้า/วัตถุดิบ (ลด)" (IS) */
+  canStockAdjustReduce: boolean;
 }
 
 /**

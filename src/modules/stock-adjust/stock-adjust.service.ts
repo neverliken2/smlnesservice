@@ -7,12 +7,18 @@ import {
 } from '@nestjs/common';
 import { DocNoService } from '../../core/doc-no/doc-no.service';
 import type { TenantRef } from '../../core/db/db.types';
+import type { TenantContext } from '../../core/tenant/tenant.types';
 import { ErpOptionService } from '../../core/erp-option/erp-option.service';
 import { ErrorCode } from '../../core/error/error-codes';
 import {
   IA_FORMAT_CODE,
+  IA_MENU_NAME,
   IA_TRANS_FLAG,
+  IS_FORMAT_CODE,
+  IS_MENU_NAME,
+  IS_TRANS_FLAG,
   RMB_FORMAT_CODE,
+  RMB_MENU_NAME,
   RMB_TRANS_FLAG,
 } from './stock-adjust.constants';
 import {
@@ -24,7 +30,13 @@ import {
   type UnitRow,
   type WarehouseRow,
 } from './stock-adjust.repository';
-import { expandDocNo, nullIfEmpty, round2, round5 } from './stock-adjust.util';
+import {
+  buildAuditData1,
+  expandDocNo,
+  nullIfEmpty,
+  round2,
+  round5,
+} from './stock-adjust.util';
 import type { ItemOption, SearchItemsResponse } from './dto/search-items.dto';
 import type {
   GetItemDefaultsResponse,
@@ -48,6 +60,7 @@ import type {
 import type {
   SaveStockAdjustBody,
   SaveStockAdjustResponse,
+  SaveStockReduceBody,
 } from './dto/save-stock-adjust.dto';
 import type {
   ValidateImportBalanceBody,
@@ -476,7 +489,7 @@ export class StockAdjustService {
    *       (port logic inline เพื่อกัน race condition)
    */
   async saveStockAdjust(
-    tenant: TenantRef,
+    tenant: TenantContext,
     body: SaveStockAdjustBody,
   ): Promise<SaveStockAdjustResponse> {
     // กรอง line ที่ sum_amount = 0 ออก (no-op)
@@ -602,11 +615,216 @@ export class StockAdjustService {
         lineNumber++;
       }
 
+      // 6. audit log — IA เป็น value-only จึงไม่มีจำนวน (doc_qty = 0)
+      await this.repo.insertAuditLog(client, {
+        menuName: IA_MENU_NAME,
+        screenCode: IA_TRANS_FLAG,
+        userCode: tenant.userCode || '',
+        docDate: body.doc_date,
+        docNo: docNoStr,
+        docAmount: totalAmount,
+        docQty: 0,
+        data1: buildAuditData1({
+          docDate: body.doc_date,
+          docTime,
+          docNo: docNoStr,
+          docFormatCode: IA_FORMAT_CODE,
+          docRefDate: body.doc_ref_date || null,
+          docRef: body.doc_ref || null,
+          whFrom: body.wh_from || '',
+          locationFrom: body.location_from || '',
+          remark: body.remark || null,
+        }),
+      });
+
       return { doc_no: docNoStr, total_amount: totalAmount };
     });
 
     this.logger.log(
       `Saved IA ${result.doc_no} total=${result.total_amount} lines=${validLines.length}`,
+    );
+    return result;
+  }
+
+  // ──────────────────────────── Save IS (ปรับปรุงสต๊อก "ลด") ────────────────────────────
+
+  /**
+   * บันทึกเอกสาร IS (trans_flag=68) — ตัดสต็อกออก
+   *
+   * ขั้นตอนเหมือน saveStockAdjust ต่างที่:
+   *   - lock/gen doc_no จาก format "IS" (trans_flag=68)
+   *   - INSERT ผ่าน insertReduceHeader/insertReduceDetail (qty/price จริง, calc_flag = −1)
+   *   - **ทุกค่าต้องเป็นบวก** (qty, price, sum_amount) เพราะสูตรยอดคงเหลือคิด
+   *     calc_flag × ค่า → ถ้าส่งค่าลบจะกลายเป็น "เพิ่มสต็อก" แทน
+   *
+   * หมายเหตุ: ไม่ได้ re-check ยอดคงเหลือ ณ ตอน save (client เช็คก่อนส่ง)
+   */
+  async saveStockAdjustReduce(
+    tenant: TenantContext,
+    body: SaveStockReduceBody,
+  ): Promise<SaveStockAdjustResponse> {
+    const validLines = body.lines.filter(
+      (l) => l.item_code && Number(l.qty) !== 0,
+    );
+    if (validLines.length === 0) {
+      throw new BadRequestException({
+        code: ErrorCode.EMPTY_LINES,
+        message: 'กรุณาเพิ่มรายการสินค้าอย่างน้อย 1 รายการ',
+      });
+    }
+
+    for (const l of validLines) {
+      if (!Number.isFinite(Number(l.sum_amount)) || Number(l.sum_amount) <= 0) {
+        throw new BadRequestException({
+          code: ErrorCode.VALIDATION_ERROR,
+          message: `มูลค่าที่ตัดต้องเป็นค่าบวก: ${l.item_code}`,
+        });
+      }
+      if (!Number.isFinite(Number(l.qty)) || Number(l.qty) <= 0) {
+        throw new BadRequestException({
+          code: ErrorCode.VALIDATION_ERROR,
+          message: `จำนวนที่ตัดต้องมากกว่า 0: ${l.item_code}`,
+        });
+      }
+      if (!Number.isFinite(Number(l.price)) || Number(l.price) < 0) {
+        throw new BadRequestException({
+          code: ErrorCode.VALIDATION_ERROR,
+          message: `ทุนต่อหน่วยไม่ถูกต้อง: ${l.item_code}`,
+        });
+      }
+      if (!l.unit_code) {
+        throw new BadRequestException({
+          code: ErrorCode.UNIT_NOT_FOUND,
+          message: `กรุณาเลือกหน่วยของสินค้า: ${l.item_code}`,
+        });
+      }
+    }
+
+    const docTime = this.resolveDocTime(body.doc_time);
+
+    const result = await this.repo.runInTransaction(tenant, async (client) => {
+      // 1. lock + gen doc_no
+      const fmt = await this.repo.lockDocFormat(client, IS_FORMAT_CODE);
+      if (!fmt) {
+        throw new NotFoundException({
+          code: ErrorCode.DOC_FORMAT_NOT_FOUND,
+          message: `ไม่พบ doc_format "${IS_FORMAT_CODE}" ใน erp_doc_format`,
+        });
+      }
+      const format = fmt.format || '';
+      if (!format) {
+        throw new BadRequestException({
+          code: ErrorCode.VALIDATION_ERROR,
+          message: 'format ของ doc_format ว่าง',
+        });
+      }
+
+      const docNoStr = await expandDocNo({
+        format,
+        docDate: body.doc_date,
+        formatCode: IS_FORMAT_CODE,
+        findLast: async (pgPattern) => {
+          const last = await this.repo.findLastDocNoInTx(
+            client,
+            IS_TRANS_FLAG,
+            IS_FORMAT_CODE,
+            pgPattern,
+          );
+          return last?.doc_no;
+        },
+      });
+
+      // 2. check duplicate
+      const exists = await this.repo.isDocNoExists(
+        client,
+        IS_TRANS_FLAG,
+        docNoStr,
+      );
+      if (exists) {
+        throw new ConflictException({
+          code: ErrorCode.DUPLICATE_DOC_NO,
+          message: `เลขที่เอกสาร ${docNoStr} ซ้ำ — กรุณาลองใหม่`,
+        });
+      }
+
+      // 3. round + compute total
+      type ComputedLine = (typeof validLines)[number] & {
+        sum_amount_rounded: number;
+        wh_code_final: string;
+        shelf_code_final: string;
+      };
+      const computed: ComputedLine[] = validLines.map((l) => ({
+        ...l,
+        wh_code_final: (l.wh_code || body.wh_from) ?? '',
+        shelf_code_final: (l.shelf_code || body.location_from) ?? '',
+        sum_amount_rounded: round5(Number(l.sum_amount)),
+      }));
+      const totalAmount = round2(
+        computed.reduce((s, l) => s + l.sum_amount_rounded, 0),
+      );
+
+      // 4. INSERT header
+      await this.repo.insertReduceHeader(client, {
+        docDate: body.doc_date,
+        docNo: docNoStr,
+        docTime,
+        docRef: nullIfEmpty(body.doc_ref?.slice(0, 255)),
+        docRefDate: body.doc_ref_date || null,
+        totalAmount,
+        whFrom: body.wh_from || '',
+        locationFrom: body.location_from || '',
+        remark: nullIfEmpty(body.remark?.slice(0, 255)),
+      });
+
+      // 5. INSERT details
+      let lineNumber = 0;
+      for (const ln of computed) {
+        await this.repo.insertReduceDetail(client, {
+          docDate: body.doc_date,
+          docNo: docNoStr,
+          docTime,
+          lineNumber,
+          itemCode: ln.item_code,
+          itemName: ln.item_name || '',
+          unitCode: ln.unit_code,
+          qty: Number(ln.qty),
+          price: Number(ln.price),
+          sumAmountRounded: ln.sum_amount_rounded,
+          whCode: ln.wh_code_final,
+          shelfCode: ln.shelf_code_final,
+          standValue: ln.stand_value,
+          divideValue: ln.divide_value,
+        });
+        lineNumber++;
+      }
+
+      // 6. audit log — doc_qty = ผลรวมจำนวนที่ตัด (desktop เอายอดรวมคอลัมน์ qty ของ grid)
+      await this.repo.insertAuditLog(client, {
+        menuName: IS_MENU_NAME,
+        screenCode: IS_TRANS_FLAG,
+        userCode: tenant.userCode || '',
+        docDate: body.doc_date,
+        docNo: docNoStr,
+        docAmount: totalAmount,
+        docQty: round5(computed.reduce((s, l) => s + Number(l.qty), 0)),
+        data1: buildAuditData1({
+          docDate: body.doc_date,
+          docTime,
+          docNo: docNoStr,
+          docFormatCode: IS_FORMAT_CODE,
+          docRefDate: body.doc_ref_date || null,
+          docRef: body.doc_ref || null,
+          whFrom: body.wh_from || '',
+          locationFrom: body.location_from || '',
+          remark: body.remark || null,
+        }),
+      });
+
+      return { doc_no: docNoStr, total_amount: totalAmount };
+    });
+
+    this.logger.log(
+      `Saved IS ${result.doc_no} total=${result.total_amount} lines=${validLines.length}`,
     );
     return result;
   }
@@ -788,7 +1006,7 @@ export class StockAdjustService {
    * ต่างที่: format RMB, line เก็บ qty จริง + price, sum_amount = qty × price
    */
   async saveStockBalance(
-    tenant: TenantRef,
+    tenant: TenantContext,
     body: SaveStockBalanceBody,
   ): Promise<SaveStockBalanceResponse> {
     // กรอง line ที่ qty = 0 ออก (no-op)
@@ -926,6 +1144,28 @@ export class StockAdjustService {
         });
         lineNumber++;
       }
+
+      // 6. audit log
+      await this.repo.insertAuditLog(client, {
+        menuName: RMB_MENU_NAME,
+        screenCode: RMB_TRANS_FLAG,
+        userCode: tenant.userCode || '',
+        docDate: body.doc_date,
+        docNo: docNoStr,
+        docAmount: totalAmount,
+        docQty: round5(computed.reduce((s, l) => s + Number(l.qty), 0)),
+        data1: buildAuditData1({
+          docDate: body.doc_date,
+          docTime,
+          docNo: docNoStr,
+          docFormatCode: RMB_FORMAT_CODE,
+          docRefDate: body.doc_ref_date || null,
+          docRef: body.doc_ref || null,
+          whFrom: body.wh_from || '',
+          locationFrom: body.location_from || '',
+          remark: body.remark || null,
+        }),
+      });
 
       return { doc_no: docNoStr, total_amount: totalAmount };
     });

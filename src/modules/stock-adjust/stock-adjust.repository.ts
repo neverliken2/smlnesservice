@@ -2,12 +2,20 @@ import { Injectable } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import { PoolManagerService } from '../../core/db/pool-manager.service';
 import type { TenantRef } from '../../core/db/db.types';
+import { newAuditGuid } from './stock-adjust.util';
 import {
   APP_CREATOR_CODE,
+  AUDIT_FUNCTION_TYPE,
+  AUDIT_OPERATION_INSERT,
   IA_FORMAT_CODE,
   IA_INQUIRY_TYPE,
   IA_TRANS_FLAG,
   IA_TRANS_TYPE,
+  IS_CALC_FLAG,
+  IS_FORMAT_CODE,
+  IS_INQUIRY_TYPE,
+  IS_TRANS_FLAG,
+  IS_TRANS_TYPE,
   RMB_FORMAT_CODE,
   RMB_INQUIRY_TYPE,
   RMB_TRANS_FLAG,
@@ -861,6 +869,223 @@ FROM t2`;
         params.divideValue, // $17
         RMB_INQUIRY_TYPE, // $18
         APP_CREATOR_CODE, // $19
+      ],
+    );
+  }
+
+  // ──────────────────────────── Transaction helpers (save IS — ปรับปรุงสต๊อก "ลด") ────────────────────────────
+
+  /**
+   * INSERT ic_trans (header) สำหรับเอกสาร IS (ปรับปรุงสต๊อกลด, trans_flag=68)
+   * โครงเดียวกับ insertHeader ของ IA ต่างแค่ trans_flag/format
+   */
+  async insertReduceHeader(
+    client: PoolClient,
+    params: {
+      docDate: string;
+      docNo: string;
+      docTime: string;
+      docRef: string | null;
+      docRefDate: string | null;
+      totalAmount: number;
+      whFrom: string;
+      locationFrom: string;
+      remark: string | null;
+    },
+  ): Promise<void> {
+    await client.query(
+      `INSERT INTO ic_trans (
+         trans_type, trans_flag,
+         doc_date, doc_no, doc_format_code, doc_time,
+         doc_ref, doc_ref_date,
+         inquiry_type,
+         total_amount,
+         wh_from, location_from,
+         branch_code,
+         remark,
+         status, last_status, used_status, used_status_2, doc_success,
+         creator_code, last_editor_code,
+         create_datetime, create_date_time_now
+       ) VALUES (
+         $1, $2,
+         $3, $4, $5, $6,
+         $7, $8,
+         $9,
+         $10,
+         $11, $12,
+         $13,
+         $14,
+         0, 0, 0, 0, 0,
+         $15, $15,
+         NOW(), NOW()
+       )`,
+      [
+        IS_TRANS_TYPE, // $1
+        IS_TRANS_FLAG, // $2
+        params.docDate, // $3
+        params.docNo, // $4
+        IS_FORMAT_CODE, // $5
+        params.docTime, // $6
+        params.docRef, // $7
+        params.docRefDate, // $8
+        IS_INQUIRY_TYPE, // $9
+        params.totalAmount, // $10
+        params.whFrom.slice(0, 25), // $11
+        params.locationFrom.slice(0, 25), // $12
+        '', // $13 branch_code (desktop RMB/IA ใช้ค่าว่าง)
+        params.remark, // $14
+        APP_CREATOR_CODE, // $15
+      ],
+    );
+  }
+
+  /**
+   * INSERT ic_trans_detail (1 line) สำหรับเอกสาร IS (ปรับปรุงสต๊อกลด — ตัดสต็อกออก)
+   *
+   * โครงเดียวกับ insertBalanceDetail (RMB) คือเป็นเอกสารแบบมีจำนวน:
+   *   - qty = จำนวนที่ตัดออก (บวก), price = ทุนเฉลี่ยปัจจุบัน
+   *   - sum_amount = sum_of_cost = sum_amount_exclude_vat = sum_of_cost_1 = qty × price
+   *   - average_cost = average_cost_1 = price (ทุนเฉลี่ยไม่เปลี่ยนหลังตัด)
+   * ต่างจาก RMB/IA ตรง:
+   *   - trans_flag = 68
+   *   - **calc_flag = −1** — mirror `_transStockCalcType` ของ SMLERP22
+   *     ทำให้ qty/มูลค่าถูกหักออกจากยอดคงเหลือ (ค่าที่เก็บลง DB เป็นบวกเสมอ)
+   */
+  async insertReduceDetail(
+    client: PoolClient,
+    params: {
+      docDate: string;
+      docNo: string;
+      docTime: string;
+      lineNumber: number;
+      itemCode: string;
+      itemName: string;
+      unitCode: string;
+      qty: number;
+      price: number;
+      sumAmountRounded: number;
+      whCode: string;
+      shelfCode: string;
+      standValue: number;
+      divideValue: number;
+    },
+  ): Promise<void> {
+    await client.query(
+      `INSERT INTO ic_trans_detail (
+         trans_type, trans_flag,
+         doc_date, doc_no, doc_time,
+         line_number,
+         item_code, item_name, unit_code,
+         qty, price,
+         sum_amount, sum_of_cost, sum_amount_exclude_vat,
+         sum_of_cost_1, average_cost, average_cost_1,
+         wh_code, shelf_code, branch_code,
+         stand_value, divide_value, ratio,
+         calc_flag, vat_type, item_type, inquiry_type,
+         is_get_price, ref_row,
+         price_type, price_mode,
+         status, last_status,
+         doc_date_calc, doc_time_calc,
+         creator_code, last_editor_code,
+         create_date_time_now
+       ) VALUES (
+         $1, $2,
+         $3, $4, $5,
+         $6,
+         $7, $8, $9,
+         $10, $11,
+         $12, $12, $12,
+         $12, $11, $11,
+         $13, $14, $15,
+         $16, $17, 0,
+         $20, 0, 0, $18,
+         1, -1,
+         NULL, NULL,
+         0, 0,
+         $3, $5,
+         $19, $19,
+         NOW()
+       )`,
+      [
+        IS_TRANS_TYPE, // $1
+        IS_TRANS_FLAG, // $2
+        params.docDate, // $3
+        params.docNo, // $4
+        params.docTime, // $5
+        params.lineNumber, // $6
+        params.itemCode, // $7
+        params.itemName.slice(0, 200), // $8
+        params.unitCode, // $9
+        params.qty, // $10 จำนวนที่ตัดออก (บวก — calc_flag=−1 หักให้เอง)
+        params.price, // $11 ทุนเฉลี่ยปัจจุบัน → average_cost ด้วย
+        params.sumAmountRounded, // $12 sum_amount + sum_of_cost + ... (qty × price)
+        params.whCode.slice(0, 25), // $13
+        params.shelfCode.slice(0, 25), // $14
+        '', // $15 branch_code (desktop RMB/IA ใช้ค่าว่าง)
+        params.standValue, // $16
+        params.divideValue, // $17
+        IS_INQUIRY_TYPE, // $18
+        APP_CREATOR_CODE, // $19
+        IS_CALC_FLAG, // $20 calc_flag = −1
+      ],
+    );
+  }
+
+  // ──────────────────────────── Audit log (ตาราง logs) ────────────────────────────
+
+  /**
+   * INSERT logs — 1 แถวต่อการบันทึกเอกสาร (mirror `_icTransControl.cs::_createLog`)
+   *
+   * เขียนใน transaction เดียวกับตัวเอกสาร: ถ้า log ล้ม เอกสารก็ rollback
+   * (ยอมแลกความเข้มงวดนี้ เพราะ audit log ที่หายไปเงียบๆ แย่กว่า save fail ที่เห็นชัด)
+   *
+   * ค่าคงที่ที่ desktop ใส่ตอน "เพิ่มใหม่": doc_date_old/doc_no_old = '',
+   * doc_amount_old/doc_qty_old = 0, data2 = '' (data2 ใช้เก็บค่าเดิมตอนแก้ไขเท่านั้น)
+   */
+  async insertAuditLog(
+    client: PoolClient,
+    params: {
+      menuName: string;
+      screenCode: number;
+      userCode: string;
+      docDate: string;
+      docNo: string;
+      docAmount: number;
+      docQty: number;
+      data1: string;
+    },
+  ): Promise<void> {
+    await client.query(
+      `INSERT INTO logs (
+         function_type, computer_name, guid,
+         doc_date, doc_no, doc_amount,
+         doc_date_old, doc_no_old, doc_amount_old,
+         menu_name, screen_code, function_code, user_code,
+         date_time, data1, data2,
+         doc_qty, doc_qty_old,
+         create_date_time_now
+       ) VALUES (
+         $1, $2, $3,
+         $4, $5, $6,
+         '', '', 0,
+         $7, $8, $9, $10,
+         NOW(), $11, '',
+         $12, 0,
+         NOW()
+       )`,
+      [
+        AUDIT_FUNCTION_TYPE, // $1
+        APP_CREATOR_CODE.slice(0, 100), // $2 computer_name — เว็บไม่มีชื่อเครื่อง ใช้ marker แทน
+        newAuditGuid(), // $3
+        params.docDate, // $4
+        params.docNo.slice(0, 100), // $5
+        params.docAmount, // $6
+        params.menuName.slice(0, 100), // $7
+        params.screenCode, // $8
+        AUDIT_OPERATION_INSERT, // $9
+        params.userCode.slice(0, 35), // $10
+        params.data1, // $11
+        params.docQty, // $12
       ],
     );
   }
