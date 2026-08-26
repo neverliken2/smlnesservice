@@ -26,7 +26,6 @@ const DEFAULT_SESSION_TTL = '8h';
 
 const CLIENT_CN_COUPON = 'nextstep-cn-coupon';
 const CLIENT_STOCK_ADJUST = 'nextstep-stock-adjust';
-const CLIENT_DASHBOARD = 'nextstep-dashboard';
 
 @Injectable()
 export class AuthService {
@@ -70,11 +69,8 @@ export class AuthService {
     // ต้อง isRead AND isAdd ถึงผ่าน (mirror logic จาก _isAccessMenuPermision)
     //   nextstep-cn-coupon    → menu_so_credit_note
     //   nextstep-stock-adjust → menu_ic_stk_adjust
-    //   nextstep-dashboard    → ไม่เช็ค menu (parity กับ Dashboard ปัจจุบันที่ใช้ pg ตรง — read-only ทั้งหมด)
     //   client อื่น (ไม่รู้จัก) → reject ตาม strict policy
-    //
-    // TODO: ถ้าต้อง stricter → สร้าง DashboardPermissionService คล้าย CnPermissionService
-    //       (เลือก menu code ที่เหมาะ เช่น menu_sale_report หรือเพิ่ม menu_dashboard_view ใน SML)
+    // หมายเหตุ: client "nextstep-dashboard" ย้ายไป nextstepdashboardservice แล้ว
     let permAllowed = false;
     let permReason = 'unknown-client';
     let permIsRead = false;
@@ -114,11 +110,6 @@ export class AuthService {
         canStockBalance: balancePerm.allowed,
         canStockAdjustReduce: reducePerm.allowed,
       };
-    } else if (clientCode === CLIENT_DASHBOARD) {
-      permAllowed = true;
-      permReason = 'dashboard-no-menu-check';
-      permIsRead = true;
-      permIsAdd = false;
     }
 
     if (!permAllowed) {

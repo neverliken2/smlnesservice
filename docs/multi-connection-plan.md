@@ -93,7 +93,7 @@ Signature เปลี่ยนเป็น `query(provider, database, sql, para
 | `modules/credit-note/credit-note.repository.ts` | 10 |
 | `modules/credit-note/credit-note.service.ts` | 1 (transaction) |
 | `modules/stock-adjust/stock-adjust.repository.ts` | 12 (รวม transaction) |
-| `modules/dashboard/dashboard.repository.ts` | ~25 |
+| ~~`modules/dashboard/dashboard.repository.ts`~~ | ~25 (ย้ายไป nextstepdashboardservice แล้ว) |
 | `core/doc-no/doc-no.repository.ts` | 2 |
 | `core/erp-option/erp-option.repository.ts` | 1 |
 | `modules/health/health.controller.ts` | 1 (checkHealth) |
@@ -113,7 +113,7 @@ Signature เปลี่ยนเป็น `query(provider, database, sql, para
 - [ ] Unit: registry — parse ถูก, provider ซ้ำ → fail, fallback env ทำงาน
 - [ ] Local: จำลอง 2 provider ชี้ PG local คนละ instance/port → login สลับ provider
       แล้ว query ไปถูกฐาน
-- [ ] Regression CN + Stock Adjust + Dashboard บนฐาน demo (โหมด fallback env ล้วน =
+- [ ] Regression CN + Stock Adjust บนฐาน demo (โหมด fallback env ล้วน =
       พิสูจน์ว่า instance เดิมไม่พัง)
 
 ---

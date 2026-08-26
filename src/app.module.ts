@@ -14,7 +14,6 @@ import { ResponseInterceptor } from './core/response';
 import { AuthFeatureModule } from './modules/auth';
 import { CreditNoteModule } from './modules/credit-note';
 import { StockAdjustModule } from './modules/stock-adjust';
-import { DashboardModule } from './modules/dashboard';
 import { HealthModule } from './modules/health/health.module';
 import { StatusModule } from './modules/status/status.module';
 import { AdminModule } from './modules/admin';
@@ -53,7 +52,6 @@ class GlobalJwtAuthGuard extends JwtAuthGuard {
     AuthFeatureModule,
     CreditNoteModule,
     StockAdjustModule,
-    DashboardModule,
     HealthModule,
     StatusModule,
     AdminModule,

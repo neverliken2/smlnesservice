@@ -2,6 +2,11 @@
 
 NestJS service ตัวกลางระหว่าง Web/Mobile clients ↔ PostgreSQL ของลูกค้า
 
+> ⚠️ **NextStep Dashboard ย้ายออกไปแล้ว (2026-08-26)** — module `dashboard`
+> และ client `nextstep-dashboard` ย้ายไป repo `nextstepdashboardservice`
+> (`C:\Users\never\Documents\work\nextstepdashboardservice\`) — service นี้เหลือ **NextStep CN Coupon** กับ **NextStep Stock Adjust**
+> โครง `core/` เป็นชุดเดียวกันกับ repo นั้น — แก้บั๊ก core ที่นี่แล้วควร port ข้ามไปด้วย
+
 > 📘 **คู่มืออ้างอิงระยะยาว** (architecture, security, DB lifecycle, timeouts, ops, checklist):
 > [`docs/architecture.md`](docs/architecture.md) — ถาม agent เรื่องเหล่านี้ใช้ที่นี่ก่อน
 
